@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+out/
+build/
+dist/
+.coverage/
+coverage/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+serviceAccountKey.json
+
+# Logs and debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+firebase-debug.log*
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+
+# Misc
+*.map
+*.tsbuildinfo
+*.tgz
+.vercel/
