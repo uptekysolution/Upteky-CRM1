@@ -361,7 +361,7 @@ export default function TeamDetailPage({ params }: { params: Promise<{ teamId: s
         <div className="space-y-4">
              <div>
                 <Button variant="ghost" asChild>
-                    <Link href="/dashboard/admin/teams-projects">
+                    <Link href="/admin/dashboard/admin/teams-projects">
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back to Hub
                     </Link>

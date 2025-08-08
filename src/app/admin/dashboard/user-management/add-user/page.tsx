@@ -77,7 +77,7 @@ export default function AddUserPage() {
                 title: "User Created",
                 description: `${data.firstName} ${data.lastName} has been added.`,
             })
-            router.push("/dashboard/user-management");
+            router.push("/admin/dashboard/user-management");
 
         } catch (error: any) {
              console.error("Error creating user: ", error);
@@ -187,7 +187,7 @@ export default function AddUserPage() {
                                 Create User
                             </Button>
                            <Button variant="outline" asChild>
-                              <Link href="/dashboard/user-management">Cancel</Link>
+                              <Link href="/admin/dashboard/user-management">Cancel</Link>
                            </Button>
                         </div>
                     </form>
