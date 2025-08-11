@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  serverExternalPackages: ['pdfkit-next'],
   images: {
     remotePatterns: [
       {
@@ -17,6 +18,30 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+  },
+  webpack: (config, { isServer }) => {
+    // Handle fontkit-next data files
+    config.module.rules.push({
+      test: /\.trie$/,
+      type: 'asset/resource',
+    });
+
+    // Add fallback for Node.js modules
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+      };
+    }
+
+    // Ensure proper handling of binary files
+    config.module.rules.push({
+      test: /\.(trie|afm|ttf|otf)$/,
+      type: 'asset/resource',
+    });
+
+    return config;
   },
 };
 

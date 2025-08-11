@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from '@/components/ui/button';
 import { Lock, Eye, Download } from "lucide-react";
+import { downloadPayslip } from '@/lib/payroll';
 
 // Mock user for demonstration. In a real app, this would come from an auth context.
 const currentUser = { name: "Alisha Anand", role: "HR" }; // Can be 'Employee', 'Team Lead', 'HR', 'Admin'
@@ -59,6 +60,16 @@ export default function PayrollPage() {
   const hasAccess = ['Admin', 'HR', 'Employee', 'Team Lead'].includes(currentUser.role);
   const isManager = ['Admin', 'HR'].includes(currentUser.role);
 
+  const handleDownloadPayslip = async (record: typeof payrollData[0]) => {
+    try {
+      // For demo purposes, create a mock payroll ID
+      const payrollId = record.id || `demo-${record.user.toLowerCase().replace(' ', '-')}-july-2024`
+      await downloadPayslip(payrollId)
+    } catch (error) {
+      console.error('Error downloading payslip:', error)
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -91,7 +102,11 @@ export default function PayrollPage() {
                             </TableCell>
                             <TableCell className="text-right">
                                 {canViewPayslip(pay) && (
-                                    <Button variant="outline" size="sm">
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      onClick={() => handleDownloadPayslip(pay)}
+                                    >
                                         <Download className="mr-2 h-4 w-4" />
                                         View Payslip
                                     </Button>

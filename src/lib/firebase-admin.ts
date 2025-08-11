@@ -1,5 +1,6 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import * as serviceAccount from '../../serviceAccountKey.json';
 
 let app: App;
@@ -21,5 +22,6 @@ try {
 }
 
 const db = getFirestore(app);
+const auth = getAuth(app);
 
-export { db };
+export { db, auth };

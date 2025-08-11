@@ -1,114 +1,248 @@
 
 'use client'
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+
+import { useState, useEffect } from 'react'
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from '@/components/ui/button';
-import { Lock, Eye, Download } from "lucide-react";
+import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useToast } from '@/hooks/use-toast'
+import { Lock, Download, Calendar, RefreshCw, User, DollarSign, Clock } from "lucide-react"
+import { 
+  fetchEmployeePayroll, 
+  downloadPayslip, 
+  PayrollData, 
+  getMonthName, 
+  formatCurrency 
+} from '@/lib/payroll'
 
-// Mock user for demonstration. In a real app, this would come from an auth context.
-const currentUser = { name: "Alisha Anand", role: "HR" }; // Can be 'Employee', 'Team Lead', 'HR', 'Admin'
+export default function EmployeePayrollPage() {
+  const [payrollData, setPayrollData] = useState<PayrollData | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const { toast } = useToast()
 
-const payrollData = [
-    { id: 'pay-1', user: 'John Doe', role: 'Team Lead', period: 'July 2024', amount: '$5,500.00', status: 'Paid' },
-    { id: 'pay-2', user: 'Jane Smith', role: 'Employee', team: 'John Doe', period: 'July 2024', amount: '$4,000.00', status: 'Paid' },
-    { id: 'pay-3', user: 'Peter Jones', role: 'HR', period: 'July 2024', amount: '$6,000.00', status: 'Paid' },
-    { id: 'pay-4', user: 'Admin User', role: 'Admin', period: 'July 2024', amount: '$10,000.00', status: 'Paid' },
-    { id: 'pay-5', user: 'Sub Admin', role: 'Sub-Admin', period: 'July 2024', amount: '$8,000.00', status: 'Paid' },
-    { id: 'pay-6', user: 'Alisha Anand', role: 'HR', period: 'July 2024', amount: '$6,200.00', status: 'Paid' },
-];
+  // Fetch payroll data when month/year changes
+  useEffect(() => {
+    fetchPayrollDataForMonth()
+  }, [selectedMonth, selectedYear])
 
-const getVisibleData = () => {
-    switch (currentUser.role) {
-        case 'Admin':
-            return payrollData; // Unrestricted access
-        case 'HR':
-             // Excludes Admin and Sub-Admin roles
-            return payrollData.filter(p => p.role !== 'Admin' && p.role !== 'Sub-Admin');
-        case 'Employee':
-        case 'Team Lead': // Team leads cannot see payroll data for their team
-            return payrollData.filter(p => p.user === currentUser.name);
-        default:
-            return [];
+  const fetchPayrollDataForMonth = async () => {
+    setLoading(true)
+    try {
+      const data = await fetchEmployeePayroll(selectedMonth, selectedYear)
+      setPayrollData(data)
+    } catch (error) {
+      console.error('Error fetching payroll data:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch payroll data. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
     }
-}
+  }
 
-const canViewPayslip = (record: typeof payrollData[0]) => {
-     switch (currentUser.role) {
-        case 'Admin':
-            return true;
-        case 'HR':
-            return record.role !== 'Admin' && record.role !== 'Sub-Admin';
-        case 'Employee':
-        case 'Team Lead':
-            return record.user === currentUser.name;
-        default:
-            return false;
+  const handleDownloadPayslip = async () => {
+    if (!payrollData) return
+    
+    try {
+      const payrollId = payrollData.id || `${payrollData.userId}_${payrollData.month}_${payrollData.year}`
+      await downloadPayslip(payrollId)
+      toast({
+        title: "Success",
+        description: "Payslip downloaded successfully",
+      })
+    } catch (error) {
+      console.error('Error downloading payslip:', error)
+      toast({
+        title: "Error",
+        description: "Failed to download payslip. Please try again.",
+        variant: "destructive"
+      })
     }
-}
+  }
 
-export default function PayrollPage() {
-  const visiblePayroll = getVisibleData();
-  const hasAccess = ['Admin', 'HR', 'Employee', 'Team Lead'].includes(currentUser.role);
-  const isManager = ['Admin', 'HR'].includes(currentUser.role);
+  const currentMonth = new Date().getMonth() + 1
+  const currentYear = new Date().getFullYear()
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
             <Lock className="h-6 w-6 text-primary"/>
-            <CardTitle>Payroll Management</CardTitle>
-        </div>
-        <CardDescription>Access to this module is restricted and all actions are logged. Team leads do not have access to team payroll.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {hasAccess ? (
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Employee</TableHead>
-                        <TableHead>Pay Period</TableHead>
-                        {isManager && <TableHead className="text-right">Amount</TableHead>}
-                        <TableHead className="text-center">Status</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {visiblePayroll.map((pay) => (
-                        <TableRow key={pay.id}>
-                            <TableCell className="font-medium">{pay.user}</TableCell>
-                            <TableCell>{pay.period}</TableCell>
-                            {isManager && <TableCell className="text-right font-mono">{pay.amount}</TableCell>}
-                            <TableCell className="text-center">
-                                <Badge>{pay.status}</Badge>
-                            </TableCell>
-                            <TableCell className="text-right">
-                                {canViewPayslip(pay) && (
-                                    <Button variant="outline" size="sm">
-                                        <Download className="mr-2 h-4 w-4" />
-                                        View Payslip
-                                    </Button>
-                                )}
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        ) : (
-             <div className="flex items-center justify-center rounded-lg border border-dashed p-12 text-center">
-                <p className="text-muted-foreground">
-                    You do not have permission to view payroll records.
-                </p>
+            <CardTitle>My Payroll</CardTitle>
+          </div>
+          <CardDescription>
+            View your payroll information and download payslips for different months.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Month/Year Picker */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-6 p-4 border rounded-lg bg-muted/50">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Pay Period:</span>
             </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+            
+            <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(parseInt(value))}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                  <SelectItem key={month} value={month.toString()}>
+                    {getMonthName(month)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+              <SelectTrigger className="w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 6 }, (_, i) => currentYear - 2 + i).map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Payroll Information */}
+          {loading ? (
+            <div className="flex items-center justify-center p-8">
+              <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+              Loading payroll data...
+            </div>
+          ) : payrollData ? (
+            <div className="space-y-6">
+              {/* Employee Info Card */}
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <User className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Employee Information</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Name</p>
+                      <p className="font-medium">{payrollData.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Employee ID</p>
+                      <p className="font-medium">{payrollData.userId}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Pay Period Card */}
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Calendar className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Pay Period</h3>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-primary">
+                      {getMonthName(payrollData.month)} {payrollData.year}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Attendance Summary Card */}
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Clock className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Attendance Summary</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="text-center p-4 bg-background rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">Present Days</p>
+                      <p className="text-3xl font-bold text-green-600">{payrollData.presentDays}</p>
+                    </div>
+                    <div className="text-center p-4 bg-background rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">Total Working Days</p>
+                      <p className="text-3xl font-bold text-blue-600">{payrollData.totalWorkingDays}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 text-center">
+                    <p className="text-sm text-muted-foreground">Attendance Rate</p>
+                    <p className="text-xl font-semibold">
+                      {payrollData.totalWorkingDays > 0 
+                        ? Math.round((payrollData.presentDays / payrollData.totalWorkingDays) * 100)
+                        : 0}%
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Salary Details Card */}
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <DollarSign className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-semibold">Salary Details</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Salary Type</span>
+                      <Badge variant="outline" className="capitalize">
+                        {payrollData.salaryType}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Base Salary</span>
+                      <span className="font-mono font-semibold">
+                        {formatCurrency(payrollData.salaryAmount)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Amount Payable</span>
+                      <span className="font-mono font-bold text-lg text-primary">
+                        {formatCurrency(payrollData.salaryPaid)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Actions */}
+              <div className="flex justify-center">
+                <Button 
+                  onClick={handleDownloadPayslip}
+                  size="lg"
+                  className="px-8"
+                >
+                  <Download className="mr-2 h-5 w-5" />
+                  Download Payslip
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center rounded-lg border border-dashed p-12 text-center">
+              <div className="space-y-2">
+                <Calendar className="h-12 w-12 text-muted-foreground mx-auto" />
+                <p className="text-muted-foreground">
+                  No payroll data found for {getMonthName(selectedMonth)} {selectedYear}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Payroll data will be available once generated by an administrator
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
