@@ -448,3 +448,38 @@ export const getPreviousMonth = (): string => {
   date.setMonth(date.getMonth() - 1)
   return format(date, 'yyyy-MM')
 }
+
+// Admin-configurable Saturday off settings
+export const fetchSaturdayOffDates = async (
+  year: number,
+  month: number
+): Promise<string[]> => {
+  try {
+    const monthStr = month.toString().padStart(2, '0')
+    const docRef = doc(db, 'company_settings', `saturday_off_${year}_${monthStr}`)
+    const snap = await getDoc(docRef)
+    if (snap.exists()) {
+      const data = snap.data() as { dates?: string[] }
+      return Array.isArray(data?.dates) ? data.dates : []
+    }
+    return []
+  } catch (error) {
+    console.error('Error fetching Saturday off dates:', error)
+    return []
+  }
+}
+
+export const saveSaturdayOffDates = async (
+  year: number,
+  month: number,
+  dates: string[]
+): Promise<void> => {
+  try {
+    const monthStr = month.toString().padStart(2, '0')
+    const docRef = doc(db, 'company_settings', `saturday_off_${year}_${monthStr}`)
+    await setDoc(docRef, { dates }, { merge: true })
+  } catch (error) {
+    console.error('Error saving Saturday off dates:', error)
+    throw error
+  }
+}

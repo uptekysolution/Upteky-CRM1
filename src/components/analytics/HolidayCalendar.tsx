@@ -10,8 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Calendar, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
-import { HOLIDAYS_2025, isHoliday, getHolidaysForMonth, isAdditionalHoliday, getAdditionalHolidayName } from '@/lib/constants/holidays'
-import { AttendanceRecord, fetchAttendanceRecords } from '@/lib/analytics'
+import { HOLIDAYS_2025, isHoliday, getHolidaysForMonth, isSunday } from '@/lib/constants/holidays'
+import { AttendanceRecord, fetchAttendanceRecords, fetchSaturdayOffDates, saveSaturdayOffDates } from '@/lib/analytics'
 import { addLeaveRequest, fetchLeaveRequests } from '@/lib/analytics'
 import { useToast } from '@/hooks/use-toast'
 import { onAuthStateChanged, User } from 'firebase/auth'
@@ -52,6 +52,9 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [loading, setLoading] = useState(false)
   const { toast } = useToast()
+  const [saturdayOffDates, setSaturdayOffDates] = useState<string[]>([])
+  const [isAdminDialogOpen, setIsAdminDialogOpen] = useState(false)
+  const [adminSelectedSaturdays, setAdminSelectedSaturdays] = useState<string[]>([])
 
   // Get current user
   useEffect(() => {
@@ -102,6 +105,20 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
     fetchRecords()
   }, [currentUser, currentYear, currentMonth, userRole, teamId, propRecords])
 
+  // Fetch admin-configured Saturday off dates for current month
+  useEffect(() => {
+    const loadSaturdayOff = async () => {
+      try {
+        const dates = await fetchSaturdayOffDates(currentYear, currentMonth + 1)
+        setSaturdayOffDates(dates)
+        setAdminSelectedSaturdays(dates)
+      } catch (e) {
+        console.error('Failed to load Saturday off dates', e)
+      }
+    }
+    loadSaturdayOff()
+  }, [currentYear, currentMonth])
+
   // Fetch leave requests when user changes
   useEffect(() => {
     if (!currentUser) return
@@ -120,23 +137,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
     fetchRequests()
   }, [currentUser, currentYear, currentMonth])
 
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Attendance Calendar
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-96 flex items-center justify-center">
-            <p className="text-muted-foreground">Loading calendar...</p>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  // Avoid placing early returns before hooks; loading UI rendered later
 
   const getDaysInMonth = (year: number, month: number) => {
     return new Date(year, month + 1, 0).getDate()
@@ -145,6 +146,8 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
   const getFirstDayOfMonth = (year: number, month: number) => {
     return new Date(year, month, 1).getDay()
   }
+
+  const isAdminSaturdayOff = (date: string) => saturdayOffDates.includes(date)
 
   const getAttendanceStatus = (date: string) => {
     // Check if there's a leave request for this date
@@ -166,14 +169,8 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
       }
     }
 
-    // Check if it's a weekend (Saturdays that are not 2nd or 4th Saturday)
-    const dayOfWeek = new Date(date).getDay()
-    if (dayOfWeek === 0 || (dayOfWeek === 6 && !isAdditionalHoliday(date))) {
-      return 'Weekend'
-    }
-
-    // Check if it's a holiday (including new holiday logic)
-    if (isHoliday(date) || isAdditionalHoliday(date)) {
+    // Check if it's a holiday
+    if (isHoliday(date) || isSunday(date) || isAdminSaturdayOff(date)) {
       return 'Holiday'
     }
 
@@ -191,8 +188,6 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
         return 'bg-yellow-500'
       case 'Absent':
         return 'bg-red-500'
-      case 'Weekend':
-        return 'bg-gray-300'
       case 'Holiday':
         return 'bg-red-400'
       default:
@@ -210,8 +205,6 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
         return 'Leave'
       case 'Absent':
         return 'Absent'
-      case 'Weekend':
-        return 'Weekend'
       case 'Holiday':
         return 'Holiday'
       default:
@@ -242,15 +235,13 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
     setHighlightedDate(date)
     
     const status = getAttendanceStatus(date)
-    const holiday = isHoliday(date) || isAdditionalHoliday(date)
-    const dayOfWeek = new Date(date).getDay()
-    const isWeekend = (dayOfWeek === 0 || (dayOfWeek === 6 && !isAdditionalHoliday(date)))
+    const holiday = isHoliday(date) || isSunday(date) || isAdminSaturdayOff(date)
 
-    // Don't allow leave requests for holidays or weekends
-    if (holiday || isWeekend) {
+    // Don't allow leave requests for holidays
+    if (holiday) {
       toast({
         title: "Cannot add leave",
-        description: holiday ? "Cannot add leave on holidays" : "Cannot add leave on weekends",
+        description: "Cannot add leave on holidays",
         variant: "destructive"
       })
       return
@@ -316,6 +307,18 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
   const firstDayOfMonth = getFirstDayOfMonth(currentYear, currentMonth)
   const holidays = getHolidaysForMonth(currentYear, currentMonth + 1)
 
+  const allSaturdaysInMonth: string[] = React.useMemo(() => {
+    const days = getDaysInMonth(currentYear, currentMonth)
+    const result: string[] = []
+    for (let day = 1; day <= days; day++) {
+      const date = formatDate(currentYear, currentMonth, day)
+      if (new Date(date).getDay() === 6) {
+        result.push(date)
+      }
+    }
+    return result
+  }, [currentYear, currentMonth])
+
   const renderCalendarDays = () => {
     const days = []
     
@@ -327,7 +330,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
     // Add cells for each day of the month
     for (let day = 1; day <= daysInMonth; day++) {
       const date = formatDate(currentYear, currentMonth, day)
-      const holiday = isHoliday(date) || isAdditionalHoliday(date)
+      const holiday = isHoliday(date) || isSunday(date) || isAdminSaturdayOff(date)
       const attendanceStatus = getAttendanceStatus(date)
       const isToday = date === formatDate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())
       const isHighlighted = date === highlightedDate
@@ -358,7 +361,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
                 {holiday && (
                   <div className="absolute top-1 right-1">
                     <Badge variant="destructive" className="text-xs px-1 py-0">
-                      {isHoliday(date) ? (isHoliday(date) as any)?.name : getAdditionalHolidayName(date)}
+                      {isHoliday(date) ? (isHoliday(date) as any)?.name : isSunday(date) ? 'Sunday' : 'Saturday Off'}
                     </Badge>
                   </div>
                 )}
@@ -394,7 +397,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
                 </div>
                 {holiday && (
                   <div className="text-red-600 font-medium">
-                    {isHoliday(date) ? (isHoliday(date) as any)?.name : getAdditionalHolidayName(date)}
+                    {isHoliday(date) ? (isHoliday(date) as any)?.name : isSunday(date) ? 'Sunday' : 'Saturday Off'}
                   </div>
                 )}
                 {attendanceStatus && !holiday && (
@@ -407,7 +410,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
                     Leave: {leaveRequest.reason}
                   </div>
                 )}
-                {!holiday && attendanceStatus !== 'Weekend' && (
+                {!holiday && (
                   <div className="text-xs text-muted-foreground">
                     Click to add leave
                   </div>
@@ -429,8 +432,8 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
       const date = formatDate(currentYear, currentMonth, day)
       const status = getAttendanceStatus(date)
       
-      // Count only working days (not weekends, holidays, or leave)
-      if (status !== 'Weekend' && status !== 'Holiday' && status !== 'Leave') {
+      // Count only working days (not holidays or leave)
+      if (status !== 'Holiday' && status !== 'Leave') {
         workingDays++
       }
     }
@@ -517,36 +520,14 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
             {renderCalendarDays()}
           </div>
 
-          {/* Legend */}
-          <div className="mt-6 space-y-3">
-            <h3 className="text-sm font-medium">Legend</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                <span className="text-sm">Present</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                <span className="text-sm">Remote</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <span className="text-sm">Leave</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <span className="text-sm">Absent</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-gray-300"></div>
-                <span className="text-sm">Weekend</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Badge variant="destructive" className="text-xs">Holiday</Badge>
-                <span className="text-sm">Holiday</span>
-              </div>
+          {/* Admin: Configure Saturday Off (max 2) */}
+          {(userRole === 'Admin' || userRole === 'Sub-Admin') && (
+            <div className="mt-6">
+              <Button variant="outline" size="sm" onClick={() => setIsAdminDialogOpen(true)}>
+                Configure Saturday Off
+              </Button>
             </div>
-          </div>
+          )}
 
           {/* Holidays for this month */}
           {holidays.length > 0 && (
@@ -562,23 +543,19 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
             </div>
           )}
 
-          {/* Additional Holidays for this month */}
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <h4 className="text-sm font-medium text-blue-800 mb-2">Additional Holidays this month:</h4>
-            <div className="space-y-1">
-              {Array.from({ length: daysInMonth }, (_, i) => {
-                const date = formatDate(currentYear, currentMonth, i + 1)
-                if (isAdditionalHoliday(date)) {
-                  return (
-                    <div key={date} className="text-sm text-blue-700">
-                      {(i + 1).toString().padStart(2, '0')} {monthNames[currentMonth]}: {getAdditionalHolidayName(date)}
-                    </div>
-                  )
-                }
-                return null
-              }).filter(Boolean)}
+          {/* Configured Saturday Off this month */}
+          {(saturdayOffDates.length > 0 || true) && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <h4 className="text-sm font-medium text-blue-800 mb-2">Saturday Off this month:</h4>
+              <div className="space-y-1">
+                {allSaturdaysInMonth.map(date => (
+                  <div key={date} className={`text-sm ${saturdayOffDates.includes(date) ? 'text-blue-700' : 'text-muted-foreground'}`}>
+                    {date.split('-')[2]} {monthNames[currentMonth]}: {saturdayOffDates.includes(date) ? 'Saturday Off' : 'Working'}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -639,6 +616,54 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
               >
                 {isSubmitting ? 'Adding...' : 'Add Leave'}
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin Saturday Off Dialog */}
+      <Dialog open={isAdminDialogOpen} onOpenChange={setIsAdminDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Set Saturday Off</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Select any Saturdays for {monthNames[currentMonth]} {currentYear}.</p>
+            <div className="grid grid-cols-2 gap-2 max-h-60 overflow-auto">
+              {allSaturdaysInMonth.map(date => {
+                const label = `${date.split('-')[2]} ${monthNames[currentMonth]}`
+                const checked = adminSelectedSaturdays.includes(date)
+                return (
+                  <label key={date} className={`flex items-center gap-2 p-2 border rounded cursor-pointer ${checked ? 'bg-blue-50 border-blue-300' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setAdminSelectedSaturdays(prev => {
+                          if (e.target.checked) {
+                            return Array.from(new Set([...prev, date]))
+                          }
+                          return prev.filter(d => d !== date)
+                        })
+                      }}
+                    />
+                    <span className="text-sm">{label}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setIsAdminDialogOpen(false); setAdminSelectedSaturdays(saturdayOffDates) }}>Cancel</Button>
+              <Button onClick={async () => {
+                try {
+                  await saveSaturdayOffDates(currentYear, currentMonth + 1, adminSelectedSaturdays)
+                  setSaturdayOffDates(adminSelectedSaturdays)
+                  setIsAdminDialogOpen(false)
+                  toast({ title: 'Saved', description: 'Saturday offs updated.' })
+                } catch (e: any) {
+                  toast({ title: 'Error', description: e.message || 'Failed to save', variant: 'destructive' })
+                }
+              }}>Save</Button>
             </div>
           </div>
         </DialogContent>

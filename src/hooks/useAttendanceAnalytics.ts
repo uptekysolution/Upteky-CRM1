@@ -87,6 +87,18 @@ export const useAttendanceAnalytics = (
           console.error('Error fetching user data:', error)
           setUserData({ role: 'Employee', name: 'Unknown', email: user.email || '' })
         }
+      } else {
+        // Clear any stale user data on logout to avoid unauthorized queries
+        setUserData(null)
+        setAnalyticsData({
+          records: [],
+          leaveBalance: null,
+          teamMetrics: [],
+          monthlyTrends: [],
+          geofenceCompliance: { withinGeofence: 0, outsideGeofence: 0, total: 0, percentage: 0 },
+          loading: false,
+          error: null
+        })
       }
     })
 

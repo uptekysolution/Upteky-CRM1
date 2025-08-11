@@ -117,6 +117,19 @@ export function AnalyticsDashboard({ userRole, userId, teamId }: AnalyticsDashbo
     )
   }
 
+  // If not authenticated (no user id available), render a friendly prompt
+  if (!effectiveUserId) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground">Please log in to view analytics.</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
