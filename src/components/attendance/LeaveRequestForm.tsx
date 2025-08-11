@@ -1,311 +1,321 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
-import { useToast } from '@/hooks/use-toast'
-import { Calendar, Send, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
-import { addLeaveRequest, fetchLeaveBalance, fetchLeaveRequests } from '@/lib/analytics'
-import { auth } from '@/lib/firebase'
-import { onAuthStateChanged, User } from 'firebase/auth'
+import React, { useState } from 'react';
+import { CalendarIcon, AlertCircle } from 'lucide-react';
+import { format, addDays, isBefore, isAfter, differenceInDays } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
+import { LeaveRequestFormData, LeaveType } from '@/types/leave';
+import { useToast } from '@/hooks/use-toast';
 
-interface LeaveRequest {
-  id: string
-  uid: string
-  date: string
-  reason: string
-  status: 'Pending' | 'Approved' | 'Rejected'
-  createdAt: any
-  month: string
+interface LeaveRequestFormProps {
+  onSubmit: (data: LeaveRequestFormData) => Promise<void>;
+  isLoading?: boolean;
+  monthlyLeaveUsed?: number;
+  maxMonthlyLeave?: number;
 }
 
-interface LeaveBalance {
-  uid: string
-  month: string
-  allocated: number
-  taken: number
-  remaining: number
-  carryForward?: number
-}
-
-export function LeaveRequestForm() {
-  const { toast } = useToast()
-  const [user, setUser] = useState<User | null>(null)
-  const [leaveDate, setLeaveDate] = useState('')
-  const [reason, setReason] = useState('')
-  const [leaveType, setLeaveType] = useState('personal')
-  const [loading, setLoading] = useState(false)
-  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null)
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
-  const [loadingBalance, setLoadingBalance] = useState(true)
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user)
-      if (user) {
-        await loadLeaveData(user.uid)
-      }
-    })
-
-    return () => unsubscribe()
-  }, [])
-
-  const loadLeaveData = async (uid: string) => {
-    try {
-      setLoadingBalance(true)
-      const currentMonth = new Date().toISOString().substring(0, 7)
-      const balance = await fetchLeaveBalance(uid, currentMonth)
-      setLeaveBalance(balance)
-
-      const requests = await fetchLeaveRequests(uid)
-      setLeaveRequests(requests)
-    } catch (error) {
-      console.error('Error loading leave data:', error)
-      toast({
-        title: "Error",
-        description: "Failed to load leave data",
-        variant: "destructive"
-      })
-    } finally {
-      setLoadingBalance(false)
-    }
+const LEAVE_TYPES: { value: LeaveType; label: string; description: string }[] = [
+  {
+    value: 'monthly',
+    label: 'Monthly Leave',
+    description: 'Regular monthly leave allowance (max 2 days per month)'
+  },
+  {
+    value: 'emergency',
+    label: 'Emergency/Medical',
+    description: 'For medical emergencies or urgent personal matters'
+  },
+  {
+    value: 'miscellaneous',
+    label: 'Miscellaneous',
+    description: 'Other personal or professional reasons'
   }
+];
+
+export function LeaveRequestForm({ 
+  onSubmit, 
+  isLoading = false,
+  monthlyLeaveUsed = 0,
+  maxMonthlyLeave = 2
+}: LeaveRequestFormProps) {
+  const [formData, setFormData] = useState<LeaveRequestFormData>({
+    leaveType: 'monthly',
+    startDate: new Date(),
+    endDate: new Date(),
+    reason: ''
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { toast } = useToast();
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Validate dates
+    if (isBefore(formData.startDate, today)) {
+      newErrors.startDate = 'Start date cannot be in the past';
+    }
+
+    if (isBefore(formData.endDate, formData.startDate)) {
+      newErrors.endDate = 'End date must be after start date';
+    }
+
+    // Validate monthly leave limits
+    if (formData.leaveType === 'monthly') {
+      const daysRequested = differenceInDays(formData.endDate, formData.startDate) + 1;
+      const totalDays = monthlyLeaveUsed + daysRequested;
+      
+      if (totalDays > maxMonthlyLeave) {
+        newErrors.leaveType = `Monthly leave limit exceeded. You have ${monthlyLeaveUsed}/${maxMonthlyLeave} days used. Requesting ${daysRequested} more days would exceed the limit.`;
+      }
+    }
+
+    // Validate reason
+    if (!formData.reason.trim()) {
+      newErrors.reason = 'Please provide a reason for your leave request';
+    } else if (formData.reason.trim().length < 10) {
+      newErrors.reason = 'Reason must be at least 10 characters long';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!user || !leaveDate || !reason.trim()) {
+    e.preventDefault();
+    
+    if (!validateForm()) {
       toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      })
-      return
+        variant: 'destructive',
+        title: 'Validation Error',
+        description: 'Please fix the errors in the form before submitting.',
+      });
+      return;
     }
 
-    if (!leaveBalance || leaveBalance.remaining <= 0) {
-      toast({
-        title: "Error",
-        description: "No leave balance remaining for this month",
-        variant: "destructive"
-      })
-      return
-    }
-
-    setLoading(true)
     try {
-      await addLeaveRequest(user.uid, leaveDate, reason)
-      
+      await onSubmit(formData);
       toast({
-        title: "Success",
-        description: "Leave request submitted successfully",
-      })
-
-      // Reset form and reload data
-      setLeaveDate('')
-      setReason('')
-      setLeaveType('personal')
-      await loadLeaveData(user.uid)
+        title: 'Leave Request Submitted',
+        description: 'Your leave request has been submitted successfully and is pending approval.',
+      });
     } catch (error) {
-      console.error('Error submitting leave request:', error)
       toast({
-        title: "Error",
-        description: "Failed to submit leave request",
-        variant: "destructive"
-      })
-    } finally {
-      setLoading(false)
+        variant: 'destructive',
+        title: 'Submission Failed',
+        description: 'Failed to submit leave request. Please try again.',
+      });
     }
-  }
+  };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Approved':
-        return <Badge variant="default" className="bg-green-100 text-green-800"><CheckCircle className="h-3 w-3 mr-1" />Approved</Badge>
-      case 'Rejected':
-        return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>
-      case 'Pending':
-        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pending</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
+  const handleDateChange = (field: 'startDate' | 'endDate', date: Date | undefined) => {
+    if (!date) return;
+    
+    setFormData(prev => {
+      const newData = { ...prev, [field]: date };
+      
+      // Auto-adjust end date if start date is after end date
+      if (field === 'startDate' && isAfter(date, prev.endDate)) {
+        newData.endDate = date;
+      }
+      
+      return newData;
+    });
+    
+    // Clear date-specific errors
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
     }
-  }
+  };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })
-  }
+  const getDaysRequested = () => {
+    return differenceInDays(formData.endDate, formData.startDate) + 1;
+  };
 
-  if (!user) {
-    return (
-      <div className="text-center p-4">
-        <p className="text-muted-foreground">Please log in to submit leave requests</p>
-      </div>
-    )
-  }
+  const getMonthlyLeaveStatus = () => {
+    if (formData.leaveType !== 'monthly') return null;
+    
+    const daysRequested = getDaysRequested();
+    const totalDays = monthlyLeaveUsed + daysRequested;
+    const remainingDays = maxMonthlyLeave - totalDays;
+    
+    return {
+      used: monthlyLeaveUsed,
+      requested: daysRequested,
+      total: totalDays,
+      remaining: remainingDays,
+      willExceed: totalDays > maxMonthlyLeave
+    };
+  };
+
+  const monthlyStatus = getMonthlyLeaveStatus();
 
   return (
-    <div className="space-y-6">
-      {/* Leave Balance Summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Leave Balance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadingBalance ? (
-            <div className="flex items-center justify-center p-4">
-              <p className="text-muted-foreground">Loading leave balance...</p>
-            </div>
-          ) : leaveBalance ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-green-50 p-4 rounded-lg border">
-                <div className="text-2xl font-bold text-green-600">
-                  {leaveBalance.allocated}
-                </div>
-                <p className="text-sm text-green-700">Total Allocated</p>
-                {leaveBalance.carryForward && leaveBalance.carryForward > 0 && (
-                  <p className="text-xs text-green-600 mt-1">
-                    +{leaveBalance.carryForward} carried forward
-                  </p>
-                )}
-              </div>
-              
-              <div className="bg-blue-50 p-4 rounded-lg border">
-                <div className="text-2xl font-bold text-blue-600">
-                  {leaveBalance.taken}
-                </div>
-                <p className="text-sm text-blue-700">Days Taken</p>
-              </div>
-              
-              <div className="bg-purple-50 p-4 rounded-lg border">
-                <div className="text-2xl font-bold text-purple-600">
-                  {leaveBalance.remaining}
-                </div>
-                <p className="text-sm text-purple-700">Days Remaining</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">No leave balance data available</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Submit Leave Request */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Send className="h-5 w-5" />
-            Submit Leave Request
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="leaveDate">Leave Date *</Label>
-                <Input
-                  id="leaveDate"
-                  type="date"
-                  value={leaveDate}
-                  onChange={(e) => setLeaveDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  required
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="leaveType">Leave Type</Label>
-                <Select value={leaveType} onValueChange={setLeaveType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select leave type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="personal">Personal Leave</SelectItem>
-                    <SelectItem value="sick">Sick Leave</SelectItem>
-                    <SelectItem value="emergency">Emergency Leave</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="reason">Reason *</Label>
-              <Textarea
-                id="reason"
-                placeholder="Please provide a detailed reason for your leave request..."
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                rows={3}
-                required
-              />
-            </div>
-
-            {leaveBalance && leaveBalance.remaining <= 0 && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                <p className="text-sm text-red-700">
-                  No leave balance remaining for this month. Please contact HR for assistance.
-                </p>
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              disabled={loading || !leaveDate || !reason.trim() || (leaveBalance && leaveBalance.remaining <= 0)}
-              className="w-full"
+    <Card className="w-full max-w-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarIcon className="h-5 w-5" />
+          Request Leave
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Leave Type Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="leaveType">Leave Type</Label>
+            <Select
+              value={formData.leaveType}
+              onValueChange={(value: LeaveType) => {
+                setFormData(prev => ({ ...prev, leaveType: value }));
+                if (errors.leaveType) {
+                  setErrors(prev => ({ ...prev, leaveType: '' }));
+                }
+              }}
             >
-              {loading ? 'Submitting...' : 'Submit Leave Request'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Leave Request History */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            Leave Request History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {leaveRequests.length === 0 ? (
-            <p className="text-muted-foreground text-center p-4">No leave requests found</p>
-          ) : (
-            <div className="space-y-3">
-              {leaveRequests.map((request) => (
-                <div key={request.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium">{formatDate(request.date)}</span>
-                      {getStatusBadge(request.status)}
+              <SelectTrigger>
+                <SelectValue placeholder="Select leave type" />
+              </SelectTrigger>
+              <SelectContent>
+                {LEAVE_TYPES.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    <div>
+                      <div className="font-medium">{type.label}</div>
+                      <div className="text-sm text-muted-foreground">{type.description}</div>
                     </div>
-                    <p className="text-sm text-muted-foreground">{request.reason}</p>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {request.createdAt?.toDate ? 
-                      request.createdAt.toDate().toLocaleDateString() : 
-                      'Date unavailable'
-                    }
-                  </div>
-                </div>
-              ))}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.leaveType && (
+              <p className="text-sm text-destructive">{errors.leaveType}</p>
+            )}
+            
+            {/* Monthly Leave Status */}
+            {monthlyStatus && (
+              <Alert className={cn(
+                "mt-2",
+                monthlyStatus.willExceed ? "border-destructive" : "border-blue-200"
+              )}>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Monthly Leave Status: {monthlyStatus.used} used, {monthlyStatus.requested} requested 
+                  ({monthlyStatus.remaining >= 0 ? `${monthlyStatus.remaining} remaining` : `${Math.abs(monthlyStatus.remaining)} over limit`})
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          {/* Date Range Selection */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Start Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !formData.startDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {formData.startDate ? format(formData.startDate, "PPP") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={formData.startDate}
+                    onSelect={(date) => handleDateChange('startDate', date)}
+                    disabled={(date) => isBefore(date, new Date())}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {errors.startDate && (
+                <p className="text-sm text-destructive">{errors.startDate}</p>
+              )}
             </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  )
+
+            <div className="space-y-2">
+              <Label>End Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !formData.endDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {formData.endDate ? format(formData.endDate, "PPP") : "Pick a date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={formData.endDate}
+                    onSelect={(date) => handleDateChange('endDate', date)}
+                    disabled={(date) => isBefore(date, formData.startDate)}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+              {errors.endDate && (
+                <p className="text-sm text-destructive">{errors.endDate}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Days Requested Display */}
+          <div className="text-sm text-muted-foreground">
+            Days requested: {getDaysRequested()} day{getDaysRequested() !== 1 ? 's' : ''}
+          </div>
+
+          {/* Reason */}
+          <div className="space-y-2">
+            <Label htmlFor="reason">Reason for Leave</Label>
+            <Textarea
+              id="reason"
+              placeholder="Please provide a detailed reason for your leave request..."
+              value={formData.reason}
+              onChange={(e) => {
+                setFormData(prev => ({ ...prev, reason: e.target.value }));
+                if (errors.reason) {
+                  setErrors(prev => ({ ...prev, reason: '' }));
+                }
+              }}
+              rows={4}
+              className={cn(errors.reason && "border-destructive")}
+            />
+            {errors.reason && (
+              <p className="text-sm text-destructive">{errors.reason}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Minimum 10 characters required
+            </p>
+          </div>
+
+          {/* Submit Button */}
+          <Button 
+            type="submit" 
+            className="w-full" 
+            disabled={isLoading}
+          >
+            {isLoading ? 'Submitting...' : 'Submit Leave Request'}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
 }

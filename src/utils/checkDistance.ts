@@ -4,10 +4,10 @@
  * @param lon1 Longitude of first point
  * @param lat2 Latitude of second point
  * @param lon2 Longitude of second point
- * @returns Distance in kilometers
+ * @returns Distance in meters
  */
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371 // Earth's radius in kilometers
+    const R = 6371000 // Earth's radius in meters
     const dLat = (lat2 - lat1) * Math.PI / 180
     const dLon = (lon2 - lon1) * Math.PI / 180
     const a =
@@ -19,31 +19,86 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 interface DistanceCheckResult {
-    distanceKm: number
+    distanceM: number
     withinGeofence: boolean
+    officeName: string
+}
+
+// Office locations
+const OFFICE_LOCATIONS = {
+    'office-1': {
+        lat: 22.997473,
+        lon: 72.498009,
+        name: 'Office 1'
+    },
+    'office-2': {
+        lat: 23.008349,
+        lon: 72.506866,
+        name: 'Office 2'
+    }
 }
 
 /**
- * Check if user location is within allowed geofence
+ * Check if user location is within allowed geofence for any office
  * @param userLat User's latitude
  * @param userLon User's longitude
- * @param officeLat Office latitude (default: 22.997473)
- * @param officeLon Office longitude (default: 72.498009)
- * @param allowedKm Allowed radius in kilometers (default: 1)
- * @returns Object with distance and whether user is within geofence
+ * @param allowedM Allowed radius in meters (default: 500)
+ * @returns Object with distance, whether user is within geofence, and office name
  */
 export function checkDistance(
     userLat: number,
     userLon: number,
-    officeLat: number = 22.997473,
-    officeLon: number = 72.498009,
-    allowedKm: number = 1
+    allowedM: number = 500
 ): DistanceCheckResult {
-    const distanceKm = haversineDistance(userLat, userLon, officeLat, officeLon)
-    const withinGeofence = distanceKm <= allowedKm
+    let closestDistance = Infinity
+    let closestOffice = ''
+    let closestOfficeName = ''
+
+    // Check distance to all offices
+    for (const [officeKey, office] of Object.entries(OFFICE_LOCATIONS)) {
+        const distanceM = haversineDistance(userLat, userLon, office.lat, office.lon)
+        
+        if (distanceM < closestDistance) {
+            closestDistance = distanceM
+            closestOffice = officeKey
+            closestOfficeName = office.name
+        }
+    }
+
+    const withinGeofence = closestDistance <= allowedM
 
     return {
-        distanceKm: Math.round(distanceKm * 100) / 100, // Round to 2 decimal places
-        withinGeofence
+        distanceM: Math.round(closestDistance * 100) / 100, // Round to 2 decimal places
+        withinGeofence,
+        officeName: closestOfficeName
+    }
+}
+
+/**
+ * Check distance to a specific office
+ * @param userLat User's latitude
+ * @param userLon User's longitude
+ * @param officeKey Office key ('office-1' or 'office-2')
+ * @param allowedM Allowed radius in meters (default: 500)
+ * @returns Object with distance, whether user is within geofence, and office name
+ */
+export function checkDistanceToOffice(
+    userLat: number,
+    userLon: number,
+    officeKey: 'office-1' | 'office-2',
+    allowedM: number = 500
+): DistanceCheckResult {
+    const office = OFFICE_LOCATIONS[officeKey]
+    if (!office) {
+        throw new Error(`Invalid office key: ${officeKey}`)
+    }
+
+    const distanceM = haversineDistance(userLat, userLon, office.lat, office.lon)
+    const withinGeofence = distanceM <= allowedM
+
+    return {
+        distanceM: Math.round(distanceM * 100) / 100, // Round to 2 decimal places
+        withinGeofence,
+        officeName: office.name
     }
 }

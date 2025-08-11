@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Calendar, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
@@ -28,6 +29,7 @@ interface LeaveRequest {
   id: string
   date: string
   reason: string
+  leaveType: string
   status: string
 }
 
@@ -42,6 +44,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [leaveReason, setLeaveReason] = useState('')
+  const [leaveType, setLeaveType] = useState('monthly')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>('')
@@ -272,7 +275,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
 
     setIsSubmitting(true)
     try {
-      await addLeaveRequest(currentUser.uid, selectedDate, leaveReason.trim())
+      await addLeaveRequest(currentUser.uid, selectedDate, leaveReason.trim(), leaveType)
       
       toast({
         title: "Leave added successfully",
@@ -282,6 +285,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
       setIsDialogOpen(false)
       setLeaveReason('')
       setSelectedDate('')
+      setLeaveType('monthly')
       
       // Refresh leave requests and trigger parent refresh
       const startDate = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-01`
@@ -595,6 +599,19 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
               />
             </div>
             <div>
+              <Label htmlFor="leaveType">Leave Type</Label>
+              <Select value={leaveType} onValueChange={setLeaveType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select leave type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Monthly Allotment (2 Days Fixed)</SelectItem>
+                  <SelectItem value="emergency">Emergency & Medical</SelectItem>
+                  <SelectItem value="misc">Other / Special Leave</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <Label htmlFor="reason">Reason for Leave</Label>
               <Input
                 id="reason"
@@ -611,6 +628,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
                   setIsDialogOpen(false)
                   setLeaveReason('')
                   setSelectedDate('')
+                  setLeaveType('monthly')
                 }}
               >
                 Cancel

@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from '@/components/ui/button';
-import { Check, X, Clock, Edit, MoreVertical, ThumbsUp, Send, AlertTriangle } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Check, X, Clock, Edit, MoreVertical, ThumbsUp, Send, AlertTriangle, FileText, Calendar } from 'lucide-react';
 import {
   ChartContainer,
   ChartTooltip,
@@ -20,6 +21,9 @@ import {
 } from "@/components/ui/chart"
 import { Line, LineChart, CartesianGrid, XAxis, ResponsiveContainer } from "recharts"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { LeaveRequestForm } from "@/components/attendance/LeaveRequestForm"
+import { LeaveCalendar } from "@/components/ui/leave-calendar"
+import { useLeaveManagement } from "@/hooks/useLeaveManagement"
 
 
 const attendanceData = [
@@ -208,9 +212,14 @@ const formatTime = (isoString: string | null) => {
 
 export default function AttendancePage() {
   const visibleRecords = getVisibleData();
+  const { leaveRequests, leaveBalance, pendingRequestsCount, submitLeaveRequest } = useLeaveManagement({
+    userRole: currentUser.role,
+    currentUserId: currentUser.id,
+    currentUserName: currentUser.name
+  });
 
   return (
-    <div className="grid gap-8">
+    <div className="space-y-6">
         <Card>
             <CardHeader>
                 <CardTitle>My Attendance</CardTitle>
@@ -223,103 +232,151 @@ export default function AttendancePage() {
                 <Button variant="outline" disabled={currentUser.role === 'Admin' || currentUser.role === 'Sub-Admin'}>
                     Check Out
                 </Button>
-                 <Button variant="ghost">
-                    <Send className="mr-2 h-4 w-4" /> Request Leave
-                </Button>
             </CardContent>
         </Card>
-        <Card>
-            <CardHeader>
-                <CardTitle>Attendance Records</CardTitle>
-                <CardDescription>
-                    {currentUser.role === 'Team Lead' ? "Your team's attendance data." : "Viewing all accessible attendance records."}
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>User</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="hidden sm:table-cell">Check-In</TableHead>
-                        <TableHead className="hidden sm:table-cell">Check-Out</TableHead>
-                        <TableHead className="hidden lg:table-cell">Verification</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {visibleRecords.map((record) => (
-                    <TableRow key={record.id}>
-                        <TableCell>{record.date}</TableCell>
-                        <TableCell className="font-medium">{record.user}</TableCell>
-                        <TableCell>
-                            <Badge variant={getStatusVariant(record.status)} className="flex w-fit items-center gap-1">
-                                {getStatusIcon(record.status)}
-                                <span>{record.status}</span>
-                            </Badge>
-                        </TableCell>
-                        <TableCell className="hidden sm:table-cell">{formatTime(record.clockInTime)}</TableCell>
-                        <TableCell className="hidden sm:table-cell">{formatTime(record.clockOutTime)}</TableCell>
-                         <TableCell className="hidden lg:table-cell">
-                            <Badge variant={getVerificationStatusVariant(record.verificationStatus)} className="flex w-fit items-center gap-1">
-                                {record.verificationStatus !== 'Verified' && <AlertTriangle className="h-4 w-4" />}
-                                <span>{record.verificationStatus}</span>
-                            </Badge>
-                         </TableCell>
-                        <TableCell className="text-right">
-                           {canEdit(record) && (
-                             <DropdownMenu>
-                               <DropdownMenuTrigger asChild>
-                                 <Button variant="ghost" size="icon">
-                                   <MoreVertical className="h-4 w-4" />
-                                   <span className="sr-only">Actions</span>
-                                 </Button>
-                               </DropdownMenuTrigger>
-                               <DropdownMenuContent align="end">
-                                 <DropdownMenuItem>
-                                   <Edit className="mr-2 h-4 w-4" />
-                                   <span>Edit Record</span>
-                                 </DropdownMenuItem>
-                                 {(currentUser.role === 'Team Lead' || currentUser.role === 'HR' || currentUser.role === 'Admin') && (
-                                     <DropdownMenuItem>
-                                        <ThumbsUp className="mr-2 h-4 w-4" />
-                                        <span>Approve</span>
-                                     </DropdownMenuItem>
-                                 )}
-                               </DropdownMenuContent>
-                             </DropdownMenu>
-                           )}
-                        </TableCell>
-                    </TableRow>
-                    ))}
-                </TableBody>
-                </Table>
-            </CardContent>
-        </Card>
-        <Card>
-            <CardHeader>
-                <CardTitle>Weekly Attendance Trends</CardTitle>
-                <CardDescription>A visual overview of attendance this week.</CardDescription>
-            </CardHeader>
-            <CardContent>
-                <ChartContainer config={chartConfig} className="h-[300px] w-full">
-                    <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis
-                          dataKey="name"
-                          tickLine={false}
-                          axisLine={false}
-                          tickMargin={8}
-                        />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Line dataKey="Present" type="monotone" stroke="var(--color-Present)" strokeWidth={2} dot={false} />
-                        <Line dataKey="Absent" type="monotone" stroke="var(--color-Absent)" strokeWidth={2} dot={false} />
-                        <Line dataKey="Late" type="monotone" stroke="var(--color-Late)" strokeWidth={2} dot={false} />
-                    </LineChart>
-                </ChartContainer>
-            </CardContent>
-        </Card>
+
+        <Tabs defaultValue="records" className="space-y-4">
+            <TabsList>
+                <TabsTrigger value="records" className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Attendance Records
+                </TabsTrigger>
+                <TabsTrigger value="leave-management" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Leave Management
+                </TabsTrigger>
+                <TabsTrigger value="trends" className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Weekly Trends
+                </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="records" className="space-y-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Attendance Records</CardTitle>
+                        <CardDescription>
+                            {currentUser.role === 'Team Lead' ? "Your team's attendance data." : "Viewing all accessible attendance records."}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>User</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="hidden sm:table-cell">Check-In</TableHead>
+                                <TableHead className="hidden sm:table-cell">Check-Out</TableHead>
+                                <TableHead className="hidden lg:table-cell">Verification</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {visibleRecords.map((record) => (
+                            <TableRow key={record.id}>
+                                <TableCell>{record.date}</TableCell>
+                                <TableCell className="font-medium">{record.user}</TableCell>
+                                <TableCell>
+                                    <Badge variant={getStatusVariant(record.status)} className="flex w-fit items-center gap-1">
+                                        {getStatusIcon(record.status)}
+                                        <span>{record.status}</span>
+                                    </Badge>
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell">{formatTime(record.clockInTime)}</TableCell>
+                                <TableCell className="hidden sm:table-cell">{formatTime(record.clockOutTime)}</TableCell>
+                                 <TableCell className="hidden lg:table-cell">
+                                    <Badge variant={getVerificationStatusVariant(record.verificationStatus)} className="flex w-fit items-center gap-1">
+                                        {record.verificationStatus !== 'Verified' && <AlertTriangle className="h-4 w-4" />}
+                                        <span>{record.verificationStatus}</span>
+                                    </Badge>
+                                 </TableCell>
+                                <TableCell className="text-right">
+                                   {canEdit(record) && (
+                                     <DropdownMenu>
+                                       <DropdownMenuTrigger asChild>
+                                         <Button variant="ghost" size="icon">
+                                           <MoreVertical className="h-4 w-4" />
+                                           <span className="sr-only">Actions</span>
+                                         </Button>
+                                       </DropdownMenuTrigger>
+                                       <DropdownMenuContent align="end">
+                                         <DropdownMenuItem>
+                                           <Edit className="mr-2 h-4 w-4" />
+                                           <span>Edit Record</span>
+                                         </DropdownMenuItem>
+                                         {(currentUser.role === 'Team Lead' || currentUser.role === 'HR' || currentUser.role === 'Admin') && (
+                                             <DropdownMenuItem>
+                                                <ThumbsUp className="mr-2 h-4 w-4" />
+                                                <span>Approve</span>
+                                             </DropdownMenuItem>
+                                         )}
+                                       </DropdownMenuContent>
+                                     </DropdownMenu>
+                                   )}
+                                </TableCell>
+                            </TableRow>
+                            ))}
+                        </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            <TabsContent value="leave-management" className="space-y-4">
+                <div className="grid gap-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Leave Management</CardTitle>
+                            <CardDescription>Request and manage your leave applications.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-col sm:flex-row items-center justify-start gap-4">
+                            <LeaveRequestForm onSubmit={submitLeaveRequest} />
+                        </CardContent>
+                    </Card>
+                    
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Leave Calendar</CardTitle>
+                            <CardDescription>View your approved and pending leave days on the calendar.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0 pt-4">
+                            <LeaveCalendar 
+                                userRole={currentUser.role}
+                                attendanceData={visibleRecords}
+                                currentUser={currentUser}
+                            />
+                        </CardContent>
+                    </Card>
+                </div>
+            </TabsContent>
+
+            <TabsContent value="trends" className="space-y-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Weekly Attendance Trends</CardTitle>
+                        <CardDescription>A visual overview of attendance this week.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <ChartContainer config={chartConfig} className="h-[300px] w-full">
+                            <LineChart data={trendData} margin={{ left: 12, right: 12 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis
+                                  dataKey="name"
+                                  tickLine={false}
+                                  axisLine={false}
+                                  tickMargin={8}
+                                />
+                                <ChartTooltip content={<ChartTooltipContent />} />
+                                <Line dataKey="Present" type="monotone" stroke="var(--color-Present)" strokeWidth={2} dot={false} />
+                                <Line dataKey="Absent" type="monotone" stroke="var(--color-Absent)" strokeWidth={2} dot={false} />
+                                <Line dataKey="Late" type="monotone" stroke="var(--color-Late)" strokeWidth={2} dot={false} />
+                            </LineChart>
+                        </ChartContainer>
+                    </CardContent>
+                </Card>
+            </TabsContent>
+        </Tabs>
     </div>
   );
 }

@@ -31,7 +31,7 @@ export function CheckInOut() {
     const [showReasonModal, setShowReasonModal] = useState(false)
     const [reason, setReason] = useState('')
     const [actionType, setActionType] = useState<'checkIn' | 'checkOut'>('checkIn')
-    const [distanceInfo, setDistanceInfo] = useState<{ distanceKm: number; withinGeofence: boolean } | null>(null)
+    const [distanceInfo, setDistanceInfo] = useState<{ distanceM: number; withinGeofence: boolean; officeName: string } | null>(null)
 
     // Get current user and their data
     useEffect(() => {
@@ -116,7 +116,7 @@ export function CheckInOut() {
         }
     }
 
-    const performAction = async (type: 'checkIn' | 'checkOut', distance: { distanceKm: number; withinGeofence: boolean }, reason: string | null) => {
+    const performAction = async (type: 'checkIn' | 'checkOut', distance: { distanceM: number; withinGeofence: boolean; officeName: string }, reason: string | null) => {
         if (!user || !userData || !lat || !lon) return
 
         try {
@@ -208,7 +208,7 @@ export function CheckInOut() {
                             <p className="text-sm">Location available</p>
                             {distanceInfo && (
                                 <Badge variant={distanceInfo.withinGeofence ? "default" : "destructive"}>
-                                    {distanceInfo.distanceKm}km from office
+                                    {distanceInfo.distanceM}m from {distanceInfo.officeName}
                                 </Badge>
                             )}
                         </div>
@@ -257,7 +257,7 @@ export function CheckInOut() {
                     <DialogHeader>
                         <DialogTitle>Outside Office Location</DialogTitle>
                         <DialogDescription>
-                            You are {distanceInfo?.distanceKm}km from the office. Please provide a reason for being outside the office.
+                            You are {distanceInfo?.distanceM}m from {distanceInfo?.officeName}. Please provide a reason for being outside the office.
                         </DialogDescription>
                     </DialogHeader>
 

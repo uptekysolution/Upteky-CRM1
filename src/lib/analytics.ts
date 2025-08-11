@@ -238,7 +238,8 @@ export const updateLeaveBalance = async (
 export const addLeaveRequest = async (
   uid: string,
   date: string,
-  reason: string
+  reason: string,
+  leaveType: string = 'monthly'
 ): Promise<void> => {
   try {
     // Get the month for the leave date
@@ -262,6 +263,7 @@ export const addLeaveRequest = async (
       uid,
       date,
       reason,
+      leaveType,
       status: 'Approved', // Auto-approve for now
       createdAt: Timestamp.now(),
       month
