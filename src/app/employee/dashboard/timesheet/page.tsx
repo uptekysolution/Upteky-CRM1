@@ -1,252 +1,379 @@
 
 'use client'
-import { useState, useEffect } from "react";
-import { PlusCircle, ThumbsUp, X, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
-} from "@/components/ui/card";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
 
-const currentUser = { id: "user-tl-john", name: "John Doe", role: "Team Lead" };
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Clock, Calendar, ChevronLeft, ChevronRight, Send, Plus } from 'lucide-react';
+import { format, addWeeks, subWeeks, startOfWeek, endOfWeek } from 'date-fns';
+import { Timesheet, TimesheetStatus, Project, User } from '@/types/timesheet';
+import { TimesheetService } from '@/lib/timesheet-service';
+import { UserService } from '@/lib/user-service';
+import { TimesheetWeekGrid } from '@/components/timesheet/timesheet-week-grid';
+import { useToast } from '@/hooks/use-toast';
 
-interface TimesheetEntry {
-  id: string;
-  date: string;
-  user: string;
-  userId: string;
-  task: string;
-  hours: number;
-  status: string;
-}
-
-const canApprove = (entry: TimesheetEntry) => {
-  if (["Admin", "HR"].includes(currentUser.role)) return true;
-  if (currentUser.role === "Team Lead") {
-    return entry.userId !== currentUser.id;
-  }
-  return false;
+// Mock current user - in real app, this would come from auth context
+const currentUser: User = {
+  id: 'emp-1',
+  email: 'john.doe@company.com',
+  name: 'John Doe',
+  role: 'employee',
+  department: 'Engineering',
+  position: 'Software Developer',
+  isActive: true
 };
 
-const canDelete = (entry: TimesheetEntry) => ["Admin", "HR"].includes(currentUser.role);
-
-const getStatusVariant = (status: string) => {
-  switch (status) {
-    case "Approved": return "default";
-    case "Pending": return "secondary";
-    case "Rejected": return "destructive";
-    default: return "outline";
-  }
-};
-
-const initialForm = { date: '', user: currentUser.name, userId: currentUser.id, task: '', hours: 0, status: 'Pending' };
-
-export default function TimesheetPage() {
+export default function EmployeeTimesheetPage() {
   const { toast } = useToast();
-  const [entries, setEntries] = useState<TimesheetEntry[]>([]);
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'log'|'approve'|'reject'|null>(null);
-  const [form, setForm] = useState<any>(initialForm);
-  const [editingEntry, setEditingEntry] = useState<TimesheetEntry|null>(null);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState<string|null>(null);
+  const [currentTimesheet, setCurrentTimesheet] = useState<Timesheet | null>(null);
 
-  const fetchTimesheets = async () => {
-    setLoading(true);
+  const { weekStart, weekEnd } = TimesheetService.getWeekDates(currentWeek);
+
+  useEffect(() => {
+    loadData();
+    const unsubscribe = TimesheetService.subscribeToEmployeeTimesheets(
+      currentUser.id,
+      (timesheets) => {
+        setTimesheets(timesheets);
+        const current = timesheets.find(t => 
+          t.weekStartDate.getTime() === weekStart.getTime()
+        );
+        setCurrentTimesheet(current || null);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentWeek]);
+
+  const loadData = async () => {
     try {
-      const response = await fetch('/api/internal/timesheets', {
-        headers: {
-          'X-User-Id': currentUser.id,
-          'X-User-Role': currentUser.role
-        }
-      });
-      if (!response.ok) throw new Error("Failed to fetch timesheet data.");
-      const data = await response.json();
-      setEntries(data);
+    setLoading(true);
+      const projectsData = await TimesheetService.getProjects();
+      setProjects(projectsData);
     } catch (error) {
+      console.error('Error loading data:', error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Could not load timesheet entries.'
+        title: "Error",
+        description: "Failed to load data.",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { fetchTimesheets(); }, []);
 
-  // Modal openers
-  const openLog = () => { setForm({ ...initialForm, date: new Date().toISOString().slice(0,10) }); setModalType('log'); setShowModal(true); };
-  const openApprove = (entry: TimesheetEntry) => { setForm({ ...entry, status: 'Approved' }); setEditingEntry(entry); setModalType('approve'); setShowModal(true); };
-  const openReject = (entry: TimesheetEntry) => { setForm({ ...entry, status: 'Rejected' }); setEditingEntry(entry); setModalType('reject'); setShowModal(true); };
-  const closeModal = () => { setShowModal(false); setModalType(null); setForm(initialForm); setEditingEntry(null); };
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setForm((f: any) => ({ ...f, [e.target.name]: e.target.value })); };
+  const handlePreviousWeek = () => {
+    setCurrentWeek(subWeeks(currentWeek, 1));
+  };
 
-  // CRUD actions
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      if (modalType === 'log') {
-        const res = await fetch('/api/internal/timesheets', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
+  const handleNextWeek = () => {
+    setCurrentWeek(addWeeks(currentWeek, 1));
+  };
+
+  const handleToday = () => {
+    setCurrentWeek(new Date());
+  };
+
+  const handleAddEntry = (entry: any) => {
+    if (!currentTimesheet) {
+      // Create new timesheet for current week
+      const newTimesheet: Omit<Timesheet, 'id' | 'createdAt' | 'updatedAt'> = {
+        employeeId: currentUser.id,
+        employeeName: currentUser.name,
+        employeeEmail: currentUser.email,
+        weekStartDate: weekStart,
+        weekEndDate: weekEnd,
+        entries: [entry],
+        totalHours: entry.hours,
+        status: TimesheetStatus.DRAFT
+      };
+
+      TimesheetService.createTimesheet(newTimesheet).then(() => {
+        toast({
+          title: "Entry Added",
+          description: "Time entry has been added successfully.",
         });
-        if (!res.ok) throw new Error('Failed to log time');
-      } else if ((modalType === 'approve' || modalType === 'reject') && editingEntry) {
-        const res = await fetch(`/api/internal/timesheets/${editingEntry.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
+      }).catch((error) => {
+        toast({
+          title: "Error",
+          description: "Failed to add time entry.",
+          variant: "destructive",
         });
-        if (!res.ok) throw new Error('Failed to update entry');
-      }
-      await fetchTimesheets();
-      closeModal();
-    } catch (e: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: e.message
       });
-    } finally {
-      setSaving(false);
+    } else {
+      // Add to existing timesheet
+      const updatedEntries = [...currentTimesheet.entries, entry];
+      const totalHours = TimesheetService.calculateTotalHours(updatedEntries);
+      
+      TimesheetService.updateTimesheet(currentTimesheet.id, {
+        entries: updatedEntries,
+        totalHours
+      }).then(() => {
+        toast({
+          title: "Entry Added",
+          description: "Time entry has been added successfully.",
+        });
+      }).catch((error) => {
+      toast({
+          title: "Error",
+          description: "Failed to add time entry.",
+          variant: "destructive",
+        });
+      });
     }
   };
-  const handleDelete = async (entry: TimesheetEntry) => {
-    if (!window.confirm(`Delete timesheet entry for ${entry.user} on ${entry.date}?`)) return;
-    setDeleting(entry.id);
-    try {
-      const res = await fetch(`/api/internal/timesheets/${entry.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete entry');
-      await fetchTimesheets();
-    } catch (e: any) {
+
+  const handleUpdateEntry = (entry: any) => {
+    if (!currentTimesheet) return;
+
+    const updatedEntries = currentTimesheet.entries.map(e => 
+      e.id === entry.id ? entry : e
+    );
+    const totalHours = TimesheetService.calculateTotalHours(updatedEntries);
+    
+    TimesheetService.updateTimesheet(currentTimesheet.id, {
+      entries: updatedEntries,
+      totalHours
+    }).then(() => {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: e.message
+        title: "Entry Updated",
+        description: "Time entry has been updated successfully.",
       });
-    } finally {
-      setDeleting(null);
+    }).catch((error) => {
+      toast({
+        title: "Error",
+        description: "Failed to update time entry.",
+        variant: "destructive",
+      });
+    });
+  };
+
+  const handleDeleteEntry = (entryId: string) => {
+    if (!currentTimesheet) return;
+
+    const updatedEntries = currentTimesheet.entries.filter(e => e.id !== entryId);
+    const totalHours = TimesheetService.calculateTotalHours(updatedEntries);
+    
+    TimesheetService.updateTimesheet(currentTimesheet.id, {
+      entries: updatedEntries,
+      totalHours
+    }).then(() => {
+      toast({
+        title: "Entry Deleted",
+        description: "Time entry has been deleted successfully.",
+      });
+    }).catch((error) => {
+      toast({
+        title: "Error",
+        description: "Failed to delete time entry.",
+        variant: "destructive",
+      });
+    });
+  };
+
+  const handleSubmitTimesheet = async () => {
+    if (!currentTimesheet) {
+      toast({
+        title: "Error",
+        description: "No timesheet to submit.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await TimesheetService.submitTimesheet(currentTimesheet.id);
+      toast({
+        title: "Timesheet Submitted",
+        description: "Your timesheet has been submitted for approval.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to submit timesheet.",
+        variant: "destructive",
+      });
     }
   };
+
+  const canEdit = !currentTimesheet || currentTimesheet.status === TimesheetStatus.DRAFT;
+  const canSubmit = currentTimesheet && 
+                   currentTimesheet.status === TimesheetStatus.DRAFT && 
+                   currentTimesheet.entries.length > 0;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">Loading timesheet...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
+    <div className="space-y-6">
+      {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Timesheet Logs</CardTitle>
-            <CardDescription>Log and manage work hours against tasks. Your view is based on your role.</CardDescription>
+          <h1 className="text-3xl font-bold">My Timesheet</h1>
+          <p className="text-muted-foreground">Log your work hours and track your time</p>
           </div>
-          <Button size="sm" className="gap-1" onClick={openLog}>
-            <PlusCircle className="h-3.5 w-3.5" />
-            <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Log Time</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handlePreviousWeek}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={handleToday}>
+            Today
+          </Button>
+          <Button variant="outline" onClick={handleNextWeek}>
+            <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
+      </div>
+
+      {/* Week Navigation */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Week of {format(weekStart, 'MMM d, yyyy')}
+            </span>
+            <div className="flex items-center gap-2">
+              {currentTimesheet && (
+                <Badge variant={
+                  currentTimesheet.status === TimesheetStatus.DRAFT ? 'secondary' :
+                  currentTimesheet.status === TimesheetStatus.SUBMITTED ? 'default' :
+                  currentTimesheet.status === TimesheetStatus.APPROVED ? 'default' : 'destructive'
+                }>
+                  {currentTimesheet.status}
+                </Badge>
+              )}
+              {canSubmit && (
+                <Button onClick={handleSubmitTimesheet} size="sm">
+                  <Send className="mr-2 h-4 w-4" />
+                  Submit
+                </Button>
+              )}
+            </div>
+          </CardTitle>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>User</TableHead>
-              <TableHead>Task</TableHead>
-              <TableHead className="text-right">Hours</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead><span className="sr-only">Actions</span></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-48" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                  <TableCell className="text-center"><Skeleton className="h-6 w-20 mx-auto" /></TableCell>
-                  <TableCell><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
-                </TableRow>
-              ))
-            ) : entries.map(entry => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">{entry.date}</TableCell>
-                <TableCell>{entry.user}</TableCell>
-                <TableCell className="text-muted-foreground">{entry.task}</TableCell>
-                <TableCell className="text-right font-mono">{entry.hours.toFixed(2)}</TableCell>
-                <TableCell className="text-center">
-                  <Badge variant={getStatusVariant(entry.status)}>{entry.status}</Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {entry.status === 'Pending' && canApprove(entry) ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Actions</span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold text-primary">
+                {currentTimesheet?.totalHours.toFixed(1) || '0.0'}h
+              </div>
+              <div className="text-sm text-muted-foreground">Total Hours</div>
+            </div>
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">
+                {currentTimesheet?.entries.length || 0}
+              </div>
+              <div className="text-sm text-muted-foreground">Entries</div>
+            </div>
+            <div className="text-center p-4 border rounded-lg">
+              <div className="text-2xl font-bold">
+                {((currentTimesheet?.totalHours || 0) / 7).toFixed(1)}h
+              </div>
+              <div className="text-sm text-muted-foreground">Average/Day</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Tabs */}
+      <Tabs defaultValue="grid" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="grid">Weekly Grid</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="grid" className="space-y-4">
+          {currentTimesheet ? (
+            <TimesheetWeekGrid
+              weekStart={weekStart}
+              entries={currentTimesheet.entries}
+              projects={projects}
+              status={currentTimesheet.status}
+              onAddEntry={handleAddEntry}
+              onUpdateEntry={handleUpdateEntry}
+              onDeleteEntry={handleDeleteEntry}
+            />
+          ) : (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <Clock className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No timesheet for this week</h3>
+                <p className="text-muted-foreground mb-4">
+                  Start logging your time to create a timesheet for this week.
+                </p>
+                <Button onClick={() => handleAddEntry({
+                  id: `entry-${Date.now()}`,
+                  date: new Date(),
+                  projectId: projects[0]?.id || '',
+                  projectName: projects[0]?.name || '',
+                  hours: 0
+                })}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add First Entry
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openApprove(entry)}>
-                          <ThumbsUp className="mr-2 h-4 w-4" />
-                          <span>Approve</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openReject(entry)}>
-                          <X className="mr-2 h-4 w-4" />
-                          <span>Reject</span>
-                        </DropdownMenuItem>
-                        {canDelete(entry) && (
-                          <DropdownMenuItem onClick={() => handleDelete(entry)} disabled={deleting === entry.id}>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>{deleting === entry.id ? 'Deleting...' : 'Delete'}</span>
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled>View</Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-      <CardFooter>
-        <div className="text-xs text-muted-foreground">
-          Showing <strong>1-{entries.length}</strong> of <strong>{entries.length}</strong> accessible entries
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Timesheet History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {timesheets.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No timesheet history found
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {timesheets.map((timesheet) => (
+                    <div key={timesheet.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <div className="font-medium">
+                          Week of {format(timesheet.weekStartDate, 'MMM d, yyyy')}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {timesheet.entries.length} entries
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="font-medium">{timesheet.totalHours.toFixed(1)}h</div>
+                          <div className="text-sm text-muted-foreground">Total</div>
         </div>
-      </CardFooter>
-      {/* Modal for log/approve/reject */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <form onSubmit={handleSave} className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-            <h2 className="font-semibold mb-4">
-              {modalType === 'log' && 'Log Time'}
-              {modalType === 'approve' && 'Approve Timesheet'}
-              {modalType === 'reject' && 'Reject Timesheet'}
-            </h2>
-            <div className="grid gap-3">
-              <input name="date" value={form.date ?? ''} onChange={handleChange} type="date" className="border rounded px-2 py-1" required />
-              <input name="user" value={form.user ?? ''} onChange={handleChange} placeholder="User" className="border rounded px-2 py-1" required />
-              <input name="userId" value={form.userId ?? ''} onChange={handleChange} placeholder="User ID" className="border rounded px-2 py-1" required />
-              <input name="task" value={form.task ?? ''} onChange={handleChange} placeholder="Task" className="border rounded px-2 py-1" required />
-              <input name="hours" value={form.hours ?? 0} onChange={handleChange} type="number" min={0} step={0.25} className="border rounded px-2 py-1" required />
-              <input name="status" value={form.status ?? 'Pending'} onChange={handleChange} className="border rounded px-2 py-1" readOnly={modalType !== 'log'} />
+                        <Badge variant={
+                          timesheet.status === TimesheetStatus.DRAFT ? 'secondary' :
+                          timesheet.status === TimesheetStatus.SUBMITTED ? 'default' :
+                          timesheet.status === TimesheetStatus.APPROVED ? 'default' : 'destructive'
+                        }>
+                          {timesheet.status}
+                        </Badge>
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button type="button" variant="outline" onClick={closeModal}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
             </div>
-          </form>
+                  ))}
         </div>
       )}
+            </CardContent>
     </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }

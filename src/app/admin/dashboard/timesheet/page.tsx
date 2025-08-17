@@ -1,252 +1,323 @@
 
 'use client'
-import { useState, useEffect } from "react";
-import { PlusCircle, ThumbsUp, X, Loader2, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle,
-} from "@/components/ui/card";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
 
-const currentUser = { id: "user-tl-john", name: "John Doe", role: "Team Lead" };
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Clock, Users, TrendingUp, Calendar, Plus } from 'lucide-react';
+import { Timesheet, TimesheetStatus, TimesheetFilters, Project, User } from '@/types/timesheet';
+import { TimesheetService } from '@/lib/timesheet-service';
+import { UserService } from '@/lib/user-service';
+import { TimesheetFiltersComponent } from '@/components/timesheet/timesheet-filters';
+import { TimesheetTable } from '@/components/timesheet/timesheet-table';
+import { useToast } from '@/hooks/use-toast';
+import { initializeSampleData } from '@/lib/sample-data';
 
-interface TimesheetEntry {
-  id: string;
-  date: string;
-  user: string;
-  userId: string;
-  task: string;
-  hours: number;
-  status: string;
-}
-
-const canApprove = (entry: TimesheetEntry) => {
-  if (["Admin", "HR"].includes(currentUser.role)) return true;
-  if (currentUser.role === "Team Lead") {
-    return entry.userId !== currentUser.id;
-  }
-  return false;
-};
-
-const canDelete = (entry: TimesheetEntry) => ["Admin", "HR"].includes(currentUser.role);
-
-const getStatusVariant = (status: string) => {
-  switch (status) {
-    case "Approved": return "default";
-    case "Pending": return "secondary";
-    case "Rejected": return "destructive";
-    default: return "outline";
-  }
-};
-
-const initialForm = { date: '', user: currentUser.name, userId: currentUser.id, task: '', hours: 0, status: 'Pending' };
-
-export default function TimesheetPage() {
+export default function AdminTimesheetPage() {
   const { toast } = useToast();
-  const [entries, setEntries] = useState<TimesheetEntry[]>([]);
+  const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
+  const [employees, setEmployees] = useState<User[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [filters, setFilters] = useState<TimesheetFilters>({});
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'log'|'approve'|'reject'|null>(null);
-  const [form, setForm] = useState<any>(initialForm);
-  const [editingEntry, setEditingEntry] = useState<TimesheetEntry|null>(null);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState<string|null>(null);
+  const [stats, setStats] = useState({
+    totalHours: 0,
+    totalEntries: 0,
+    approvedHours: 0,
+    pendingHours: 0,
+    rejectedHours: 0,
+    submittedCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0
+  });
 
-  const fetchTimesheets = async () => {
-    setLoading(true);
+  useEffect(() => {
+    loadData();
+    const unsubscribe = TimesheetService.subscribeToAllTimesheets((timesheets) => {
+      setTimesheets(timesheets);
+      calculateStats(timesheets);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const loadData = async () => {
     try {
-      const response = await fetch('/api/internal/timesheets', {
-        headers: {
-          'X-User-Id': currentUser.id,
-          'X-User-Role': currentUser.role
-        }
-      });
-      if (!response.ok) throw new Error("Failed to fetch timesheet data.");
-      const data = await response.json();
-      setEntries(data);
+      setLoading(true);
+      const [employeesData, projectsData] = await Promise.all([
+        UserService.getEmployees(),
+        TimesheetService.getProjects()
+      ]);
+      setEmployees(employeesData);
+      setProjects(projectsData);
     } catch (error) {
+      console.error('Error loading data:', error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Could not load timesheet entries.'
+        title: "Error",
+        description: "Failed to load data.",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { fetchTimesheets(); }, []);
 
-  // Modal openers
-  const openLog = () => { setForm({ ...initialForm, date: new Date().toISOString().slice(0,10) }); setModalType('log'); setShowModal(true); };
-  const openApprove = (entry: TimesheetEntry) => { setForm({ ...entry, status: 'Approved' }); setEditingEntry(entry); setModalType('approve'); setShowModal(true); };
-  const openReject = (entry: TimesheetEntry) => { setForm({ ...entry, status: 'Rejected' }); setEditingEntry(entry); setModalType('reject'); setShowModal(true); };
-  const closeModal = () => { setShowModal(false); setModalType(null); setForm(initialForm); setEditingEntry(null); };
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { setForm((f: any) => ({ ...f, [e.target.name]: e.target.value })); };
+  const calculateStats = (timesheets: Timesheet[]) => {
+    const stats = {
+      totalHours: 0,
+      totalEntries: 0,
+      approvedHours: 0,
+      pendingHours: 0,
+      rejectedHours: 0,
+      submittedCount: 0,
+      approvedCount: 0,
+      rejectedCount: 0
+    };
 
-  // CRUD actions
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      if (modalType === 'log') {
-        const res = await fetch('/api/internal/timesheets', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
-        });
-        if (!res.ok) throw new Error('Failed to log time');
-      } else if ((modalType === 'approve' || modalType === 'reject') && editingEntry) {
-        const res = await fetch(`/api/internal/timesheets/${editingEntry.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form)
-        });
-        if (!res.ok) throw new Error('Failed to update entry');
+    timesheets.forEach(timesheet => {
+      stats.totalHours += timesheet.totalHours;
+      stats.totalEntries += timesheet.entries.length;
+
+      switch (timesheet.status) {
+        case TimesheetStatus.APPROVED:
+          stats.approvedHours += timesheet.totalHours;
+          stats.approvedCount++;
+          break;
+        case TimesheetStatus.SUBMITTED:
+          stats.pendingHours += timesheet.totalHours;
+          stats.submittedCount++;
+          break;
+        case TimesheetStatus.REJECTED:
+          stats.rejectedHours += timesheet.totalHours;
+          stats.rejectedCount++;
+          break;
       }
-      await fetchTimesheets();
-      closeModal();
-    } catch (e: any) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: e.message
-      });
-    } finally {
-      setSaving(false);
-    }
+    });
+
+    setStats(stats);
   };
-  const handleDelete = async (entry: TimesheetEntry) => {
-    if (!window.confirm(`Delete timesheet entry for ${entry.user} on ${entry.date}?`)) return;
-    setDeleting(entry.id);
+
+  const handleRefresh = () => {
+    loadData();
+  };
+
+  const handleInitializeData = async () => {
     try {
-      const res = await fetch(`/api/internal/timesheets/${entry.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete entry');
-      await fetchTimesheets();
-    } catch (e: any) {
+      await initializeSampleData();
+      await loadData();
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: e.message
+        title: "Sample Data Created",
+        description: "Sample projects have been created successfully.",
       });
-    } finally {
-      setDeleting(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create sample data.",
+        variant: "destructive",
+      });
     }
   };
+
+  const filteredTimesheets = timesheets.filter(timesheet => {
+    if (filters.employeeId && timesheet.employeeId !== filters.employeeId) return false;
+    if (filters.status && timesheet.status !== filters.status) return false;
+    if (filters.dateRange?.start && timesheet.weekStartDate < filters.dateRange.start) return false;
+    if (filters.dateRange?.end && timesheet.weekEndDate > filters.dateRange.end) return false;
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      const matchesEmployee = timesheet.employeeName.toLowerCase().includes(searchLower);
+      const matchesProject = timesheet.entries.some(entry => 
+        entry.projectName.toLowerCase().includes(searchLower)
+      );
+      if (!matchesEmployee && !matchesProject) return false;
+    }
+    return true;
+  });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">Loading timesheets...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Timesheet Logs</CardTitle>
-            <CardDescription>Log and manage work hours against tasks. Your view is based on your role.</CardDescription>
-          </div>
-          <Button size="sm" className="gap-1" onClick={openLog}>
-            <PlusCircle className="h-3.5 w-3.5" />
-            <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Log Time</span>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Timesheet Management</h1>
+          <p className="text-muted-foreground">Monitor and approve employee timesheets</p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={handleInitializeData} variant="outline">
+            <Plus className="mr-2 h-4 w-4" />
+            Initialize Data
+          </Button>
+          <Button onClick={handleRefresh} variant="outline">
+            <Calendar className="mr-2 h-4 w-4" />
+            Refresh
           </Button>
         </div>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>User</TableHead>
-              <TableHead>Task</TableHead>
-              <TableHead className="text-right">Hours</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead><span className="sr-only">Actions</span></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-48" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                  <TableCell className="text-center"><Skeleton className="h-6 w-20 mx-auto" /></TableCell>
-                  <TableCell><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
-                </TableRow>
-              ))
-            ) : entries.map(entry => (
-              <TableRow key={entry.id}>
-                <TableCell className="font-medium">{entry.date}</TableCell>
-                <TableCell>{entry.user}</TableCell>
-                <TableCell className="text-muted-foreground">{entry.task}</TableCell>
-                <TableCell className="text-right font-mono">{entry.hours.toFixed(2)}</TableCell>
-                <TableCell className="text-center">
-                  <Badge variant={getStatusVariant(entry.status)}>{entry.status}</Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {entry.status === 'Pending' && canApprove(entry) ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                          <span className="sr-only">Actions</span>
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openApprove(entry)}>
-                          <ThumbsUp className="mr-2 h-4 w-4" />
-                          <span>Approve</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openReject(entry)}>
-                          <X className="mr-2 h-4 w-4" />
-                          <span>Reject</span>
-                        </DropdownMenuItem>
-                        {canDelete(entry) && (
-                          <DropdownMenuItem onClick={() => handleDelete(entry)} disabled={deleting === entry.id}>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            <span>{deleting === entry.id ? 'Deleting...' : 'Delete'}</span>
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled>View</Button>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-      <CardFooter>
-        <div className="text-xs text-muted-foreground">
-          Showing <strong>1-{entries.length}</strong> of <strong>{entries.length}</strong> accessible entries
-        </div>
-      </CardFooter>
-      {/* Modal for log/approve/reject */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <form onSubmit={handleSave} className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-            <h2 className="font-semibold mb-4">
-              {modalType === 'log' && 'Log Time'}
-              {modalType === 'approve' && 'Approve Timesheet'}
-              {modalType === 'reject' && 'Reject Timesheet'}
-            </h2>
-            <div className="grid gap-3">
-              <input name="date" value={form.date ?? ''} onChange={handleChange} type="date" className="border rounded px-2 py-1" required />
-              <input name="user" value={form.user ?? ''} onChange={handleChange} placeholder="User" className="border rounded px-2 py-1" required />
-              <input name="userId" value={form.userId ?? ''} onChange={handleChange} placeholder="User ID" className="border rounded px-2 py-1" required />
-              <input name="task" value={form.task ?? ''} onChange={handleChange} placeholder="Task" className="border rounded px-2 py-1" required />
-              <input name="hours" value={form.hours ?? 0} onChange={handleChange} type="number" min={0} step={0.25} className="border rounded px-2 py-1" required />
-              <input name="status" value={form.status ?? 'Pending'} onChange={handleChange} className="border rounded px-2 py-1" readOnly={modalType !== 'log'} />
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button type="button" variant="outline" onClick={closeModal}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
-            </div>
-          </form>
-        </div>
-      )}
-    </Card>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalHours.toFixed(1)}h</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.totalEntries} entries
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Approval</CardTitle>
+            <Badge variant="secondary">{stats.submittedCount}</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingHours.toFixed(1)}h</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.submittedCount} timesheets
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Approved</CardTitle>
+            <Badge variant="default">{stats.approvedCount}</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.approvedHours.toFixed(1)}h</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.approvedCount} timesheets
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+            <Badge variant="destructive">{stats.rejectedCount}</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.rejectedHours.toFixed(1)}h</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.rejectedCount} timesheets
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filters */}
+      <TimesheetFiltersComponent
+        filters={filters}
+        onFiltersChange={setFilters}
+        employees={employees}
+        projects={projects}
+      />
+
+      {/* Tabs */}
+      <Tabs defaultValue="table" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="table">Table View</TabsTrigger>
+          <TabsTrigger value="summary">Summary</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="table" className="space-y-4">
+          <TimesheetTable
+            timesheets={filteredTimesheets}
+            filters={filters}
+            onRefresh={handleRefresh}
+          />
+        </TabsContent>
+
+        <TabsContent value="summary" className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Employee Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Employee Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {employees.map(employee => {
+                    const employeeTimesheets = timesheets.filter(t => t.employeeId === employee.id);
+                    const totalHours = employeeTimesheets.reduce((sum, t) => sum + t.totalHours, 0);
+                    const pendingCount = employeeTimesheets.filter(t => t.status === TimesheetStatus.SUBMITTED).length;
+                    
+                    return (
+                      <div key={employee.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <div className="font-medium">{employee.name}</div>
+                          <div className="text-sm text-muted-foreground">{employee.email}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium">{totalHours.toFixed(1)}h</div>
+                          {pendingCount > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {pendingCount} pending
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Project Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Project Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {projects.map(project => {
+                    const projectHours = timesheets.reduce((sum, timesheet) => {
+                      return sum + timesheet.entries
+                        .filter(entry => entry.projectId === project.id)
+                        .reduce((entrySum, entry) => entrySum + entry.hours, 0);
+                    }, 0);
+                    
+                    return (
+                      <div key={project.id} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <div className="font-medium">{project.name}</div>
+                          <div className="text-sm text-muted-foreground">{project.description}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium">{projectHours.toFixed(1)}h</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
