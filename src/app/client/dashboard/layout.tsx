@@ -93,6 +93,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const { hasAnyPermission, isLoading } = useRolePermissions();
 
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      toast({ title: "Logged Out", description: "You have been successfully logged out." });
+      router.push('/login');
+    } catch (error) {
+      toast({ variant: 'destructive', title: "Logout Failed", description: "Could not log you out. Please try again."});
+    }
+  };
+
   const visibleNavItems = navItems.filter(item => hasAnyPermission(item.requiredPermission));
   const visibleClientHubNavItems = clientHubNavItems.filter(item => hasAnyPermission(item.requiredPermission));
   const visibleAdminNavItems = adminNavItems.filter(item => hasAnyPermission(item.requiredPermission));
