@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, onSnapshot, collection, query, where, getDocs, Timestamp } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 import {
@@ -20,224 +20,88 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { CalendarCheck2, CheckSquare, Clock, Users, Target, TrendingUp, TrendingDown, RefreshCw, AlertCircle, Activity } from "lucide-react"
+import { CalendarCheck2, CheckSquare, Clock, Users, Target, TrendingUp, TrendingDown, Activity, Server } from "lucide-react"
 import { DashboardChart } from "./dashboard-chart"
-import { RealTimeAnalytics } from "@/components/analytics/RealTimeAnalytics"
-import { useToast } from "@/hooks/use-toast"
-import { Skeleton } from "@/components/ui/skeleton"
-import { ErrorBoundary } from "@/components/ErrorBoundary"
-// import { usePerformanceMonitor, useDataFetchMonitor } from "@/hooks/usePerformanceMonitor"
+import { EnhancedDashboardChart } from "@/components/analytics/EnhancedDashboardChart"
+import { UserActivityMonitor } from "@/components/analytics/UserActivityMonitor"
+import { useAnalytics } from "@/hooks/use-analytics"
+import { useRolePermissions } from "@/hooks/use-role-permissions"
+import { RealTimeIndicator } from "@/components/analytics/RealTimeIndicator"
 
-// Enhanced mock permissions with better structure
-const mockPermissions = {
-  Admin: { 'users:manage': true, 'attendance:view:all': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': true, 'lead-generation:view': true },
-  HR: { 'users:manage': true, 'attendance:view:all': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': false, 'lead-generation:view': false },
-  'Team Lead': { 'users:manage': false, 'attendance:view:team': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:team': true, 'lead-generation:view': true },
-  Employee: { 'users:manage': false, 'attendance:view:own': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': false, 'lead-generation:view': false },
-  'Business Development': { 'users:manage': false, 'attendance:view:all': false, 'tasks:view': false, 'timesheet:view': false, 'crm:view:own': true, 'lead-generation:view': true }
-};
-
-interface DashboardMetrics {
-  activeUsers: number;
-  attendanceToday: number;
-  openTasks: number;
-  pendingApprovals: number;
-  lastUpdated: Date;
-}
-
-interface RealTimeData {
-  isLive: boolean;
-  lastRefresh: Date;
-  error: string | null;
-}
-
-function DashboardContent() {
+export default function Dashboard() {
   const [userName, setUserName] = useState<string>("");
-  const [userRole, setUserRole] = useState<string>("");
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    activeUsers: 0,
-    attendanceToday: 0,
-    openTasks: 0,
-    pendingApprovals: 0,
-    lastUpdated: new Date()
+  const { metrics, loading, error, lastUpdated } = useAnalytics({
+    autoRefresh: true,
+    refreshInterval: 3600000, // 1 hour (3600000 ms)
+    enableRealTime: true
   });
-  const [realTimeData, setRealTimeData] = useState<RealTimeData>({
-    isLive: false,
-    lastRefresh: new Date(),
-    error: null
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const { toast } = useToast();
+  const { hasAnyPermission, isLoading: permissionsLoading } = useRolePermissions();
 
-  // Performance monitoring temporarily disabled to prevent infinite loops
-  // const { monitorAsyncOperation } = usePerformanceMonitor('Dashboard')
-  // const { recordFetch } = useDataFetchMonitor('Dashboard')
-
-  // Get user permissions based on role
-  const userPermissions = (mockPermissions as any)[userRole] || {};
-
-  // Fetch real-time metrics
-  const fetchMetrics = useCallback(async () => {
-    try {
-      setIsRefreshing(true);
-      setRealTimeData(prev => ({ ...prev, error: null }));
-
-      // Simulate real-time data fetching with error handling
-      const today = new Date();
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      
-      // Fetch attendance data
-      const attendanceQuery = query(
-        collection(db, 'attendance'),
-        where('date', '>=', Timestamp.fromDate(startOfDay))
-      );
-      
-      const attendanceSnapshot = await getDocs(attendanceQuery);
-      const presentCount = attendanceSnapshot.docs.filter(doc => 
-        doc.data().status === 'present' || doc.data().status === 'checked-in'
-      ).length;
-      
-      // Fetch tasks data
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('status', '==', 'open')
-      );
-      
-      const tasksSnapshot = await getDocs(tasksQuery);
-      
-      // Fetch pending approvals
-      const approvalsQuery = query(
-        collection(db, 'leave_requests'),
-        where('status', '==', 'pending')
-      );
-      
-      const approvalsSnapshot = await getDocs(approvalsQuery);
-      
-      // Calculate metrics with realistic data
-      const totalEmployees = 150; // This would come from user count
-      const attendancePercentage = totalEmployees > 0 ? Math.round((presentCount / totalEmployees) * 100) : 0;
-      
-      const newMetrics: DashboardMetrics = {
-        activeUsers: Math.floor(Math.random() * 200) + 1100, // Simulate active users
-        attendanceToday: attendancePercentage,
-        openTasks: tasksSnapshot.size,
-        pendingApprovals: approvalsSnapshot.size,
-        lastUpdated: new Date()
-      };
-
-      setMetrics(newMetrics);
-      setRealTimeData({
-        isLive: true,
-        lastRefresh: new Date(),
-        error: null
-      });
-
-    } catch (error) {
-      console.error('Error fetching metrics:', error);
-      setRealTimeData(prev => ({
-        ...prev,
-        error: 'Failed to fetch real-time data'
-      }));
-      toast({
-        variant: 'destructive',
-        title: 'Data Fetch Error',
-        description: 'Unable to load real-time metrics. Please try again.'
-      });
-    } finally {
-      setIsRefreshing(false);
-      setIsLoading(false);
-      
-      // Performance monitoring removed to prevent infinite loops
-      // const fetchDuration = performance.now() - fetchStartTime;
-      // recordFetch(fetchDuration, !realTimeData.error);
-    }
-  }, [toast]); // Simplified dependencies to prevent infinite loops
-
-  // Auto-refresh every 1 hour
-  useEffect(() => {
-    fetchMetrics();
-    
-    const interval = setInterval(() => {
-      fetchMetrics();
-    }, 60 * 60 * 1000); // 1 hour
-
-    return () => clearInterval(interval);
-  }, []); // Remove fetchMetrics dependency to prevent infinite loops
-
-  // User authentication and role fetching
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setUserName("");
-        setUserRole("");
-        setIsLoading(false);
         return;
       }
 
-      try {
-        let resolvedName: string | null = user.displayName || null;
+      let resolvedName: string | null = user.displayName || null;
 
-        // Try Firestore user document for a preferred name and role
+      // Try Firestore user document for a preferred name
+      try {
         const snap = await getDoc(doc(db, "users", user.uid));
         if (snap.exists()) {
           const data = snap.data() as any;
           resolvedName = data?.name || data?.fullName || resolvedName;
-          setUserRole(data?.role || "Employee");
-        } else {
-          setUserRole("Employee");
         }
-
-        if (!resolvedName) {
-          const localPart = user.email?.split("@")[0] ?? "User";
-          resolvedName = localPart
-            .split(/[._-]+/)
-            .filter(Boolean)
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(" ");
-        }
-
-        setUserName(resolvedName);
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-        setUserName("User");
-        setUserRole("Employee");
-      } finally {
-        setIsLoading(false);
+      } catch (e) {
+        // Silent fail, fallback to auth/displayName or email
       }
+
+      if (!resolvedName) {
+        const localPart = user.email?.split("@")[0] ?? "User";
+        resolvedName = localPart
+          .split(/[._-]+/)
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+      }
+
+      setUserName(resolvedName);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Performance monitoring removed to prevent infinite loops
-  // useEffect(() => {
-  //   startRender();
-  //   return () => {
-  //     endRender();
-  //   };
-  // }, []);
 
-  // Loading skeleton
-  if (isLoading) {
+
+  const getChangeIcon = (changeType: 'increase' | 'decrease') => {
+    return changeType === 'increase' ?
+      <TrendingUp className="h-4 w-4 text-green-500" /> :
+      <TrendingDown className="h-4 w-4 text-red-500" />;
+  };
+
+  const getChangeColor = (changeType: 'increase' | 'decrease') => {
+    return changeType === 'increase' ? 'text-green-600' : 'text-red-600';
+  };
+
+  if (permissionsLoading || loading) {
     return (
       <div className="space-y-6">
         <div className="mb-4">
-          <Skeleton className="h-8 w-64 mb-2" />
-          <Skeleton className="h-4 w-96" />
+          <h1 className="text-3xl font-bold">Welcome back, {userName || "User"}!</h1>
+          <p className="text-muted-foreground">Loading your workspace...</p>
         </div>
-        
         <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
+          {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-4 w-4" />
+                <CardTitle className="text-sm font-medium">
+                  <div className="h-4 w-24 bg-gray-200 rounded animate-pulse"></div>
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <Skeleton className="h-8 w-16 mb-2" />
-                <Skeleton className="h-3 w-32" />
+                <div className="h-8 w-16 bg-gray-200 rounded animate-pulse mb-2"></div>
+                <div className="h-3 w-32 bg-gray-200 rounded animate-pulse"></div>
               </CardContent>
             </Card>
           ))}
@@ -248,52 +112,38 @@ function DashboardContent() {
 
   return (
     <>
-      {/* Header with real-time status */}
-      <div className="mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="mb-4">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Welcome back, {userName || "User"}!</h1>
-            <p className="text-muted-foreground">Here's a summary of your workspace with real-time analytics.</p>
+            <p className="text-muted-foreground">Here's a summary of your workspace with analytics that refresh every hour.</p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            {/* Real-time status indicator */}
-            <div className="flex items-center gap-2 text-sm">
-              <div className={`w-2 h-2 rounded-full ${realTimeData.isLive ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-              <span className={realTimeData.isLive ? 'text-green-600' : 'text-gray-500'}>
-                {realTimeData.isLive ? 'Live' : 'Offline'}
-              </span>
-                           <span className="text-muted-foreground">
-               Updated {realTimeData.lastRefresh.toLocaleTimeString()} | Auto-refresh: 1 hour
-             </span>
+          {lastUpdated && (
+            <div className="text-sm text-muted-foreground">
+              Last updated: {lastUpdated.toLocaleTimeString()}
             </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchMetrics}
-              disabled={isRefreshing}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-          </div>
+          )}
         </div>
-
-        {/* Error banner */}
-        {realTimeData.error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <span className="text-sm text-red-800">{realTimeData.error}</span>
+        {error && (
+          <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+            <p className="text-sm text-yellow-700">
+              <span className="font-medium">Note:</span> Using simulated data due to backend connection issues.
+              Real-time updates are still active.
+            </p>
           </div>
         )}
+        <div className="mt-2">
+          <RealTimeIndicator
+            isLive={!error}
+            lastUpdated={lastUpdated}
+          />
+        </div>
       </div>
 
-      {/* Metrics Cards */}
+      {/* Real-time Metrics Cards */}
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-        {userPermissions['users:manage'] && (
-          <Card className="transition-all duration-200 hover:shadow-md">
+        {hasAnyPermission(['users:manage']) && (
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Active Users
@@ -301,17 +151,25 @@ function DashboardContent() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{metrics.activeUsers.toLocaleString()}</div>
+              <div className="text-2xl font-bold">
+                {metrics?.activeUsers.count.toLocaleString() || '0'}
+              </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <TrendingUp className="h-3 w-3 text-green-600" />
-                +20.1% from last month
+                {metrics?.activeUsers.change && (
+                  <>
+                    {getChangeIcon(metrics.activeUsers.changeType)}
+                    <span className={getChangeColor(metrics.activeUsers.changeType)}>
+                      {metrics.activeUsers.change.toFixed(1)}% from last month
+                    </span>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
         )}
-        
-        {(userPermissions['attendance:view:all'] || userPermissions['attendance:view:team'] || userPermissions['attendance:view:own']) && (
-          <Card className="transition-all duration-200 hover:shadow-md">
+
+        {hasAnyPermission(['attendance:view:all', 'attendance:view:team', 'attendance:view:own']) && (
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Attendance Today
@@ -319,33 +177,57 @@ function DashboardContent() {
               <CalendarCheck2 className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{metrics.attendanceToday}%</div>
+              <div className="text-2xl font-bold">
+                {metrics?.attendanceToday.percentage.toFixed(1) || '0'}%
+              </div>
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <TrendingDown className="h-3 w-3 text-red-600" />
-                -1.2% from yesterday
+                {metrics?.attendanceToday.change && (
+                  <>
+                    {getChangeIcon(metrics.attendanceToday.changeType)}
+                    <span className={getChangeColor(metrics.attendanceToday.changeType)}>
+                      {metrics.attendanceToday.change.toFixed(1)}% from yesterday
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {metrics?.attendanceToday.presentToday || 0} of {metrics?.attendanceToday.totalEmployees || 0} present
               </div>
             </CardContent>
           </Card>
         )}
-        
-        {userPermissions['tasks:view'] && (
-          <Card className="transition-all duration-200 hover:shadow-md">
+
+        {hasAnyPermission(['tasks:view']) && (
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Open Tasks</CardTitle>
               <CheckSquare className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{metrics.openTasks}</div>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <TrendingUp className="h-3 w-3 text-green-600" />
-                +12 since last week
+              <div className="text-2xl font-bold">
+                {metrics?.openTasks.count || 0}
               </div>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                {metrics?.openTasks.change && (
+                  <>
+                    {getChangeIcon(metrics.openTasks.changeType)}
+                    <span className={getChangeColor(metrics.openTasks.changeType)}>
+                      {metrics.openTasks.change} since last week
+                    </span>
+                  </>
+                )}
+              </div>
+              {metrics?.openTasks.overdue && metrics.openTasks.overdue > 0 && (
+                <div className="text-xs text-red-600 mt-1">
+                  {metrics.openTasks.overdue} overdue
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
-        
-        {userPermissions['timesheet:view'] && (
-          <Card className="transition-all duration-200 hover:shadow-md">
+
+        {hasAnyPermission(['timesheet:view']) && (
+          <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 Pending Approvals
@@ -353,19 +235,33 @@ function DashboardContent() {
               <Clock className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{metrics.pendingApprovals}</div>
-              <div className="text-xs text-muted-foreground">
-                3 timesheets, 14 leave requests
+              <div className="text-2xl font-bold">
+                {metrics?.pendingApprovals.count || 0}
               </div>
+              <div className="text-xs text-muted-foreground">
+                {metrics?.pendingApprovals.timesheets || 0} timesheets, {metrics?.pendingApprovals.leaveRequests || 0} leave requests
+              </div>
+              {metrics?.pendingApprovals.overtimeRequests && metrics.pendingApprovals.overtimeRequests > 0 && (
+                <div className="text-xs text-orange-600 mt-1">
+                  {metrics.pendingApprovals.overtimeRequests} overtime requests
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
       </div>
 
-      {/* Charts and Tables Section */}
-      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3 mt-8">
-        {(userPermissions['crm:view:all'] || userPermissions['crm:view:team'] || userPermissions['crm:view:own']) && (
-          <Card className="xl:col-span-2 transition-all duration-200 hover:shadow-md">
+      {/* Real-Time Analytics - Full Width */}
+      {hasAnyPermission(['lead-generation:view']) && (
+        <div className="mt-6">
+          <EnhancedDashboardChart />
+        </div>
+      )}
+
+      {/* Recent Leads - Full Width */}
+      {hasAnyPermission(['crm:view:all', 'crm:view:team', 'crm:view:own']) && (
+        <div className="mt-6">
+          <Card>
             <CardHeader>
               <CardTitle>Recent Leads</CardTitle>
               <CardDescription>
@@ -387,80 +283,94 @@ function DashboardContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Liam Johnson</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        liam@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Webinar
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="outline">
-                        Contacted
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$2,500.00</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Olivia Smith</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        olivia@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Referral
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="secondary">
-                        New
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$1,500.00</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Noah Williams</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        noah@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Website
-                    </TableCell>
-                     <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="outline">
-                        Contacted
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$3,000.00</TableCell>
-                  </TableRow>
+                  {metrics?.recentLeads.length ? (
+                    metrics.recentLeads.map((lead) => (
+                      <TableRow key={lead.id}>
+                        <TableCell>
+                          <div className="font-medium">{lead.customerName}</div>
+                          <div className="hidden text-sm text-muted-foreground md:inline">
+                            {lead.email}
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {lead.source}
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge className="text-xs" variant="outline">
+                            {lead.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">${lead.value.toLocaleString()}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                        No recent leads
+                      </TableCell>
+                    </TableRow>
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
-        )}
-        
-        {userPermissions['lead-generation:view'] && (
-          <DashboardChart />
-        )}
+        </div>
+      )}
+
+      {/* User Activity Monitor */}
+      <div className="mt-6">
+        <UserActivityMonitor />
       </div>
 
-      {/* Real-Time Analytics */}
-      <div className="mt-8">
-        <RealTimeAnalytics />
-      </div>
+      {/* System Health Indicators */}
+      {metrics?.systemHealth && (
+        <div className="grid gap-4 md:gap-8 lg:grid-cols-3 mt-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">System Uptime</CardTitle>
+              <Server className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">
+                {metrics.systemHealth.uptime}%
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Last backup: {metrics.systemHealth.lastBackup.toLocaleDateString()}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Sessions</CardTitle>
+              <Activity className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">
+                {metrics.systemHealth.activeSessions}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Current active users
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Storage Usage</CardTitle>
+              <Target className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">
+                {metrics.systemHealth.storageUsage}%
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Database storage utilization
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </>
-  )
-}
-
-export default function Dashboard() {
-  return (
-    <ErrorBoundary>
-      <DashboardContent />
-    </ErrorBoundary>
   )
 }
