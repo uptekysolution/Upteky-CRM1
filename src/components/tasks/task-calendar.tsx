@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useMemo, useState } from 'react';
-import { Calendar, dateFnsLocalizer } from 'react-big-calendar';
-import { format, parse, startOfWeek, getDay } from 'date-fns';
+import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
+import { format, parse, startOfWeek, getDay, addMonths, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import { Task, Meeting, CalendarEvent } from '@/types/task';
@@ -79,6 +79,8 @@ export function TaskCalendar({
   const [showQuickEditDialog, setShowQuickEditDialog] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentView, setCurrentView] = useState(Views.MONTH);
 
   const events = useMemo(() => {
     const calendarEvents: CalendarEvent[] = [];
@@ -161,6 +163,14 @@ export function TaskCalendar({
     setShowAddDialog(true);
   };
 
+  const handleNavigate = (newDate: Date) => {
+    setCurrentDate(newDate);
+  };
+
+  const handleViewChange = (newView: string) => {
+    setCurrentView(newView);
+  };
+
   const handleAddTask = () => {
     if (selectedDate && onAddTask) {
       onAddTask(selectedDate);
@@ -210,6 +220,10 @@ export function TaskCalendar({
           eventPropGetter={eventStyleGetter}
           onSelectEvent={handleEventClick}
           onSelectSlot={handleSelectSlot}
+          onNavigate={handleNavigate}
+          onView={handleViewChange}
+          date={currentDate}
+          view={currentView}
           selectable
           popup
           tooltipAccessor={(event) => {
@@ -228,8 +242,15 @@ export function TaskCalendar({
             month: "Month",
             week: "Week",
             day: "Day",
+            agenda: "Agenda",
             noEventsInRange: "No events in this range.",
           }}
+          views={['month', 'week', 'day', 'agenda']}
+          defaultView={Views.MONTH}
+          step={60}
+          timeslots={1}
+          min={new Date(0, 0, 0, 0, 0, 0)}
+          max={new Date(0, 0, 0, 23, 59, 59)}
         />
       </div>
 
