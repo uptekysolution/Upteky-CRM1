@@ -1,316 +1,204 @@
+"use client";
 
-'use client'
-
-import { useEffect, useState, use } from 'react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter
-} from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Send, UserCircle, MessageSquare, PenSquare, CornerDownRight, PlusCircle } from 'lucide-react';
-import Link from 'next/link';
-
-interface Reply {
-    id: string;
-    authorName: string;
-    message: string;
-    isInternalNote: boolean;
-    createdAt: { toDate: () => Date };
-}
+import { ArrowLeft, Clock, User, AlertCircle, MessageCircle } from 'lucide-react';
+import ChatInterface from '@/components/chat/ChatInterface';
+import { ChatService } from '@/lib/chat-service';
 
 interface Ticket {
-    id: string;
-    ticketNumber: number;
-    title: string;
-    description: string;
-    status: string;
-    priority: string;
-    category: string;
-    assignedToUserId: string | null;
-    createdAt: { toDate: () => Date };
-    replies: Reply[];
-    linkedTaskId: string | null;
+  id: string;
+  ticketNumber: number;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  category: string;
+  assignedToUserId: string | null;
+  createdAt: any;
+  lastMessage?: string;
+  lastUpdated: any;
 }
 
-// Mock user data for assignees - in a real app this would come from your user management system
-const assignableUsers = [
-    { id: 'user-tl-john', name: 'John Doe' },
-    { id: 'user-hr-alisha', name: 'Alisha Anand' },
-    { id: 'user-admin', name: 'Admin User' },
-];
-
-export default function TicketDetailPage({ params }: { params: Promise<{ ticketId: string }> }) {
-  const { ticketId } = use(params);
+export default function AdminTicketDetailPage() {
+  const params = useParams();
+  const router = useRouter();
   const { toast } = useToast();
+  const ticketId = params.ticketId as string;
+
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [loading, setLoading] = useState(true);
-  const [newReply, setNewReply] = useState('');
-  const [isInternalNote, setIsInternalNote] = useState(false);
-  
-  const fetchTicket = async () => {
-      setLoading(true);
-      try {
-        const response = await fetch(`/api/internal/crm/tickets/${ticketId}`, {
-            headers: { 'X-User-Role': 'Admin' }
-        });
-        if (!response.ok) {
-          throw new Error('Failed to fetch ticket details');
-        }
-        const data = await response.json();
-        // Sort replies by date, oldest first
-        data.replies.sort((a: Reply, b: Reply) => new Date(a.createdAt.toDate()).getTime() - new Date(b.createdAt.toDate()).getTime());
-        setTicket(data);
-      } catch (error) {
-        console.error(error);
-        toast({
-          variant: 'destructive',
-          title: 'Error fetching ticket',
-          description: 'Could not load ticket data from the database.',
-        });
-      } finally {
-        setLoading(false);
-      }
-  };
+  const [adminUser, setAdminUser] = useState({ id: 'admin-user', name: 'Admin User' });
 
   useEffect(() => {
-    if(ticketId) {
-        fetchTicket();
+    if (ticketId) {
+      fetchTicket();
+      // Mark messages as read when admin opens the ticket
+      markMessagesAsRead();
     }
-  }, [ticketId, toast]);
+  }, [ticketId]);
 
-  const handlePostReply = async () => {
-      if (!newReply.trim()) return;
+  const fetchTicket = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`/api/internal/crm/tickets/${ticketId}`, {
+        headers: { 'X-User-Role': 'Admin' }
+      });
       
-      try {
-          const response = await fetch(`/api/internal/crm/tickets/${ticketId}/replies`, {
-              method: 'POST',
-              headers: { 
-                  'Content-Type': 'application/json',
-                  'X-User-Role': 'Admin'
-              },
-              body: JSON.stringify({ message: newReply, isInternalNote })
-          });
-          if (!response.ok) {
-              throw new Error('Failed to post reply');
-          }
-          setNewReply('');
-          setIsInternalNote(false);
-          await fetchTicket(); // Refresh ticket data
-          toast({ title: "Reply posted successfully" });
-      } catch (error) {
-          console.error(error);
-          toast({ variant: 'destructive', title: 'Error', description: 'Could not post your reply.' });
+      if (!response.ok) {
+        throw new Error('Failed to fetch ticket');
       }
+      
+      const data = await response.json();
+      setTicket(data);
+    } catch (error) {
+      console.error('Error fetching ticket:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Could not load ticket details. Please try again.'
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAssignmentChange = async (userId: string) => {
-      try {
-           const response = await fetch(`/api/internal/crm/tickets/${ticketId}/assign`, {
-              method: 'PUT',
-              headers: { 
-                  'Content-Type': 'application/json',
-                  'X-User-Role': 'Admin'
-              },
-              body: JSON.stringify({ assignedToUserId: userId === 'unassigned' ? null : userId })
-          });
-          if (!response.ok) throw new Error("Failed to assign ticket");
-          await fetchTicket();
-          toast({ title: "Ticket Assigned", description: `Ticket assigned to ${assignableUsers.find(u => u.id === userId)?.name || 'Unassigned'}`});
-      } catch (error) {
-          console.error(error);
-          toast({ variant: 'destructive', title: 'Error', description: 'Could not assign ticket.' });
-      }
-  }
-  
-  const handleConvertToTask = async () => {
-      try {
-          const response = await fetch(`/api/internal/crm/tickets/${ticketId}/convert-to-task`, {
-              method: 'POST',
-              headers: { 'X-User-Role': 'Admin' }
-          });
-          if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.message || 'Failed to convert to task');
-          }
-          await fetchTicket();
-          toast({ title: "Ticket Converted", description: "A new task has been created from this ticket." });
-      } catch (error: any) {
-          console.error(error);
-          toast({ variant: 'destructive', title: 'Conversion Failed', description: error.message });
-      }
-  }
-
-  const getStatusVariant = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'open': return 'destructive';
-      case 'in progress': return 'secondary';
-      case 'awaiting client reply': return 'outline';
-      case 'resolved': return 'default';
-      default: return 'secondary';
+  const markMessagesAsRead = async () => {
+    try {
+      await ChatService.markMessagesAsRead(ticketId);
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
     }
+  };
+
+  const handleMessageSent = async () => {
+    // Messages are automatically marked as read when admin opens the ticket
+    // No additional action needed here
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'open': return 'bg-red-500';
+      case 'in progress': return 'bg-blue-500';
+      case 'awaiting client reply': return 'bg-yellow-500';
+      case 'resolved': return 'bg-green-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high': return 'bg-red-500';
+      case 'medium': return 'bg-orange-500';
+      case 'low': return 'bg-gray-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const formatTimestamp = (timestamp: any) => {
+    if (!timestamp) return 'Unknown';
+    const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleString();
   };
 
   if (loading) {
     return (
-        <div className="space-y-4">
-            <Skeleton className="h-8 w-48" />
-            <div className="grid md:grid-cols-3 gap-6">
-                <div className="md:col-span-2 space-y-6">
-                    <Skeleton className="h-64 w-full" />
-                    <Skeleton className="h-48 w-full" />
-                </div>
-                <Skeleton className="h-96 w-full" />
-            </div>
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse" />
         </div>
+        <div className="h-96 bg-gray-200 rounded-2xl animate-pulse" />
+      </div>
     );
   }
 
   if (!ticket) {
-    return <p>Ticket not found.</p>;
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-2">Ticket not found</h2>
+        <p className="text-gray-600 mb-4">The ticket you're looking for doesn't exist or you don't have access to it.</p>
+        <Button onClick={() => router.push('/admin/dashboard/hub/tickets')}>Back to Tickets</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Button variant="ghost" asChild>
-          <Link href="/dashboard/hub/tickets">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Ticket Queue
-          </Link>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" onClick={() => router.back()}>
+          <ArrowLeft className="h-5 w-5" />
         </Button>
-      </div>
-      <div className="grid md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
-            {/* Conversation Thread */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <MessageSquare className="h-6 w-6" />
-                        <span>#{ticket.ticketNumber}: {ticket.title}</span>
-                    </CardTitle>
-                    <CardDescription>{ticket.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-6">
-                        {ticket.replies.map(reply => (
-                            <div key={reply.id} className={`flex gap-3 ${reply.isInternalNote ? 'rounded-md border border-amber-300 bg-amber-50 p-3' : ''}`}>
-                                 <UserCircle className="h-8 w-8 text-muted-foreground flex-shrink-0 mt-1" />
-                                 <div className="flex-1">
-                                    <div className="flex justify-between items-center">
-                                       <p className="font-semibold">{reply.authorName}</p>
-                                       <p className="text-xs text-muted-foreground">{new Date(reply.createdAt.toDate()).toLocaleString()}</p>
-                                    </div>
-                                    <p className="text-sm mt-1">{reply.message}</p>
-                                    {reply.isInternalNote && <Badge variant="secondary" className="mt-2 bg-amber-200 text-amber-800">Internal Note</Badge>}
-                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Reply Form */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><PenSquare className="h-6 w-6"/> Post a Reply</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Textarea 
-                        placeholder="Type your message here..."
-                        value={newReply}
-                        onChange={(e) => setNewReply(e.target.value)}
-                        className="min-h-[120px]"
-                    />
-                     <div className="flex items-center space-x-2 mt-4">
-                        <Checkbox 
-                            id="internal-note"
-                            checked={isInternalNote}
-                            onCheckedChange={(checked) => setIsInternalNote(!!checked)}
-                        />
-                        <Label htmlFor="internal-note" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            Make this an internal note (client will not see it)
-                        </Label>
-                    </div>
-                </CardContent>
-                <CardFooter>
-                    <Button onClick={handlePostReply}>
-                        <Send className="mr-2 h-4 w-4" />
-                        Post Reply
-                    </Button>
-                </CardFooter>
-            </Card>
+        <div className="flex-1">
+          <h1 className="text-2xl font-semibold text-gray-900">Ticket #{ticket.ticketNumber}</h1>
+          <p className="text-gray-600">{ticket.title}</p>
         </div>
-        
-        {/* Ticket Details Sidebar */}
-        <Card>
-            <CardHeader>
-                <CardTitle>Ticket Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                <div>
-                    <Label>Status</Label>
-                    <Badge variant={getStatusVariant(ticket.status)} className="w-full justify-center text-base py-1">{ticket.status}</Badge>
-                </div>
-                 <div>
-                    <Label>Priority</Label>
-                     <Select defaultValue={ticket.priority}>
-                        <SelectTrigger>
-                            <SelectValue/>
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Low">Low</SelectItem>
-                            <SelectItem value="Medium">Medium</SelectItem>
-                            <SelectItem value="High">High</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div>
-                    <Label>Category</Label>
-                    <Input readOnly value={ticket.category}/>
-                </div>
-                 <div>
-                    <Label>Assignee</Label>
-                     <Select value={ticket.assignedToUserId || 'unassigned'} onValueChange={handleAssignmentChange}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Assign to a user"/>
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="unassigned">Unassigned</SelectItem>
-                            {assignableUsers.map(user => (
-                                <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                 <div>
-                    <Label>Created At</Label>
-                    <Input readOnly value={new Date(ticket.createdAt.toDate()).toLocaleString()}/>
-                </div>
-                 <div>
-                    <Label>Actions</Label>
-                    <Button onClick={handleConvertToTask} disabled={!!ticket.linkedTaskId} className="w-full">
-                        <PlusCircle className="mr-2 h-4 w-4" />
-                        {ticket.linkedTaskId ? 'Task Already Created' : 'Convert to Task'}
-                    </Button>
-                    {ticket.linkedTaskId && (
-                        <p className="text-xs text-muted-foreground mt-1">Linked to Task ID: {ticket.linkedTaskId}</p>
-                    )}
-                </div>
-            </CardContent>
-        </Card>
+        <div className="flex gap-2">
+          <Badge className={getStatusColor(ticket.status)}>{ticket.status}</Badge>
+          <Badge className={getPriorityColor(ticket.priority)}>{ticket.priority}</Badge>
+        </div>
       </div>
+
+      {/* Ticket Info */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5" />
+            Ticket Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700">Description</label>
+            <p className="text-gray-600 mt-1">{ticket.description}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Category</label>
+              <p className="text-gray-600 mt-1">{ticket.category}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Created</label>
+              <p className="text-gray-600 mt-1">{formatTimestamp(ticket.createdAt)}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Assigned To</label>
+              <p className="text-gray-600 mt-1">
+                {ticket.assignedToUserId ? ticket.assignedToUserId : 'Unassigned'}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Last Updated</label>
+              <p className="text-gray-600 mt-1">{formatTimestamp(ticket.lastUpdated)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Chat Section */}
+      {adminUser && adminUser.id ? (
+        <ChatInterface
+          ticketId={ticketId}
+          currentUserId={adminUser.id}
+          currentUserRole="admin"
+          onMessageSent={handleMessageSent}
+        />
+      ) : (
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="flex items-center justify-center h-32">
+            <div className="text-center text-gray-500">
+              <p>Loading admin user...</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -321,7 +321,8 @@ export default function EmployeeTimesheetPage() {
                   date: new Date(),
                   projectId: projects[0]?.id || '',
                   projectName: projects[0]?.name || '',
-                  hours: 0
+                  hours: 0,
+                  notes: ''
                 })}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add First Entry

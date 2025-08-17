@@ -24,47 +24,16 @@ export class TimesheetService {
   // Create a new timesheet
   static async createTimesheet(timesheetData: Omit<Timesheet, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
-      // Clean the data to remove any undefined values
-      const cleanData: any = {};
-      Object.keys(timesheetData).forEach(key => {
-        if (timesheetData[key as keyof typeof timesheetData] !== undefined) {
-          cleanData[key] = timesheetData[key as keyof typeof timesheetData];
-        }
-      });
-
-      // Clean entries array
-      if (cleanData.entries) {
-        cleanData.entries = cleanData.entries.map((entry: any) => {
-          const cleanEntry: any = {};
-          Object.keys(entry).forEach(key => {
-            if (entry[key] !== undefined) {
-              cleanEntry[key] = entry[key];
-            }
-          });
-          return cleanEntry;
-        });
-      }
-
       const docRef = await addDoc(collection(db, TIMESHEETS_COLLECTION), {
-        ...cleanData,
+        ...timesheetData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        weekStartDate: Timestamp.fromDate(cleanData.weekStartDate),
-        weekEndDate: Timestamp.fromDate(cleanData.weekEndDate),
-        entries: cleanData.entries.map((entry: any) => {
-          // Clean each entry again to ensure no undefined values
-          const finalCleanEntry: any = {};
-          Object.keys(entry).forEach(key => {
-            if (entry[key] !== undefined) {
-              finalCleanEntry[key] = entry[key];
-            }
-          });
-          
-          return {
-            ...finalCleanEntry,
-            date: Timestamp.fromDate(entry.date)
-          };
-        })
+        weekStartDate: Timestamp.fromDate(timesheetData.weekStartDate),
+        weekEndDate: Timestamp.fromDate(timesheetData.weekEndDate),
+        entries: timesheetData.entries.map(entry => ({
+          ...entry,
+          date: Timestamp.fromDate(entry.date)
+        }))
       });
       return docRef.id;
     } catch (error) {
@@ -78,73 +47,22 @@ export class TimesheetService {
     try {
       const docRef = doc(db, TIMESHEETS_COLLECTION, timesheetId);
       const updateData: any = {
+        ...updates,
         updatedAt: serverTimestamp()
       };
 
-      // Only include defined values in the update
-      if (updates.weekStartDate !== undefined) {
+      if (updates.weekStartDate) {
         updateData.weekStartDate = Timestamp.fromDate(updates.weekStartDate);
       }
-      if (updates.weekEndDate !== undefined) {
+      if (updates.weekEndDate) {
         updateData.weekEndDate = Timestamp.fromDate(updates.weekEndDate);
       }
-      if (updates.entries !== undefined) {
-        updateData.entries = updates.entries.map(entry => {
-          // Clean each entry to remove undefined values
-          const cleanEntry: any = {};
-          Object.keys(entry).forEach(key => {
-            if (entry[key as keyof typeof entry] !== undefined) {
-              cleanEntry[key] = entry[key as keyof typeof entry];
-            }
-          });
-          
-          return {
-            ...cleanEntry,
-            date: Timestamp.fromDate(cleanEntry.date)
-          };
-        });
+      if (updates.entries) {
+        updateData.entries = updates.entries.map(entry => ({
+          ...entry,
+          date: Timestamp.fromDate(entry.date)
+        }));
       }
-      if (updates.totalHours !== undefined) {
-        updateData.totalHours = updates.totalHours;
-      }
-      if (updates.status !== undefined) {
-        updateData.status = updates.status;
-      }
-      if (updates.submittedAt !== undefined) {
-        updateData.submittedAt = updates.submittedAt ? Timestamp.fromDate(updates.submittedAt) : null;
-      }
-      if (updates.approvedAt !== undefined) {
-        updateData.approvedAt = updates.approvedAt ? Timestamp.fromDate(updates.approvedAt) : null;
-      }
-      if (updates.approvedBy !== undefined) {
-        updateData.approvedBy = updates.approvedBy;
-      }
-      if (updates.approvedByName !== undefined) {
-        updateData.approvedByName = updates.approvedByName;
-      }
-      if (updates.rejectedAt !== undefined) {
-        updateData.rejectedAt = updates.rejectedAt ? Timestamp.fromDate(updates.rejectedAt) : null;
-      }
-      if (updates.rejectedBy !== undefined) {
-        updateData.rejectedBy = updates.rejectedBy;
-      }
-      if (updates.rejectedByName !== undefined) {
-        updateData.rejectedByName = updates.rejectedByName;
-      }
-      if (updates.rejectionReason !== undefined) {
-        updateData.rejectionReason = updates.rejectionReason;
-      }
-
-      // Final validation - ensure no undefined values exist
-      Object.keys(updateData).forEach(key => {
-        if (updateData[key] === undefined) {
-          console.warn(`Found undefined value for field: ${key}, removing it`);
-          delete updateData[key];
-        }
-      });
-
-      // Log the final update data for debugging
-      console.log('Updating timesheet with data:', updateData);
 
       await updateDoc(docRef, updateData);
     } catch (error) {
@@ -161,39 +79,20 @@ export class TimesheetService {
       
       if (docSnap.exists()) {
         const data = docSnap.data();
-        
-        // Clean the data to remove any undefined values
-        const cleanData: any = {};
-        Object.keys(data).forEach(key => {
-          if (data[key] !== undefined) {
-            cleanData[key] = data[key];
-          }
-        });
-        
         return {
           id: docSnap.id,
-          ...cleanData,
-          weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-          weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-          entries: cleanData.entries?.map((entry: any) => {
-            // Clean each entry to remove undefined values
-            const cleanEntry: any = {};
-            Object.keys(entry).forEach(key => {
-              if (entry[key] !== undefined) {
-                cleanEntry[key] = entry[key];
-              }
-            });
-            
-            return {
-              ...cleanEntry,
-              date: cleanEntry.date?.toDate() || new Date()
-            };
-          }) || [],
-          createdAt: cleanData.createdAt?.toDate() || new Date(),
-          updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-          submittedAt: cleanData.submittedAt?.toDate(),
-          approvedAt: cleanData.approvedAt?.toDate(),
-          rejectedAt: cleanData.rejectedAt?.toDate()
+          ...data,
+          weekStartDate: data.weekStartDate?.toDate() || new Date(),
+          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          entries: data.entries?.map((entry: any) => ({
+            ...entry,
+            date: entry.date?.toDate() || new Date()
+          })) || [],
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          submittedAt: data.submittedAt?.toDate(),
+          approvedAt: data.approvedAt?.toDate(),
+          rejectedAt: data.rejectedAt?.toDate()
         } as Timesheet;
       }
       return null;
@@ -214,39 +113,20 @@ export class TimesheetService {
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => {
         const data = doc.data();
-        
-        // Clean the data to remove any undefined values
-        const cleanData: any = {};
-        Object.keys(data).forEach(key => {
-          if (data[key] !== undefined) {
-            cleanData[key] = data[key];
-          }
-        });
-        
         return {
           id: doc.id,
-          ...cleanData,
-          weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-          weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-          entries: cleanData.entries?.map((entry: any) => {
-            // Clean each entry to remove undefined values
-            const cleanEntry: any = {};
-            Object.keys(entry).forEach(key => {
-              if (entry[key] !== undefined) {
-                cleanEntry[key] = entry[key];
-              }
-            });
-            
-            return {
-              ...cleanEntry,
-              date: cleanEntry.date?.toDate() || new Date()
-            };
-          }) || [],
-          createdAt: cleanData.createdAt?.toDate() || new Date(),
-          updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-          submittedAt: cleanData.submittedAt?.toDate(),
-          approvedAt: cleanData.approvedAt?.toDate(),
-          rejectedAt: cleanData.rejectedAt?.toDate()
+          ...data,
+          weekStartDate: data.weekStartDate?.toDate() || new Date(),
+          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          entries: data.entries?.map((entry: any) => ({
+            ...entry,
+            date: entry.date?.toDate() || new Date()
+          })) || [],
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          submittedAt: data.submittedAt?.toDate(),
+          approvedAt: data.approvedAt?.toDate(),
+          rejectedAt: data.rejectedAt?.toDate()
         } as Timesheet;
       });
     } catch (error) {
@@ -265,39 +145,20 @@ export class TimesheetService {
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => {
         const data = doc.data();
-        
-        // Clean the data to remove any undefined values
-        const cleanData: any = {};
-        Object.keys(data).forEach(key => {
-          if (data[key] !== undefined) {
-            cleanData[key] = data[key];
-          }
-        });
-        
         return {
           id: doc.id,
-          ...cleanData,
-          weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-          weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-          entries: cleanData.entries?.map((entry: any) => {
-            // Clean each entry to remove undefined values
-            const cleanEntry: any = {};
-            Object.keys(entry).forEach(key => {
-              if (entry[key] !== undefined) {
-                cleanEntry[key] = entry[key];
-              }
-            });
-            
-            return {
-              ...cleanEntry,
-              date: cleanEntry.date?.toDate() || new Date()
-            };
-          }) || [],
-          createdAt: cleanData.createdAt?.toDate() || new Date(),
-          updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-          submittedAt: cleanData.submittedAt?.toDate(),
-          approvedAt: cleanData.approvedAt?.toDate(),
-          rejectedAt: cleanData.rejectedAt?.toDate()
+          ...data,
+          weekStartDate: data.weekStartDate?.toDate() || new Date(),
+          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          entries: data.entries?.map((entry: any) => ({
+            ...entry,
+            date: entry.date?.toDate() || new Date()
+          })) || [],
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          submittedAt: data.submittedAt?.toDate(),
+          approvedAt: data.approvedAt?.toDate(),
+          rejectedAt: data.rejectedAt?.toDate()
         } as Timesheet;
       });
     } catch (error) {
@@ -326,39 +187,20 @@ export class TimesheetService {
 
       const doc = querySnapshot.docs[0];
       const data = doc.data();
-      
-      // Clean the data to remove any undefined values
-      const cleanData: any = {};
-      Object.keys(data).forEach(key => {
-        if (data[key] !== undefined) {
-          cleanData[key] = data[key];
-        }
-      });
-      
       return {
         id: doc.id,
-        ...cleanData,
-        weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-        weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-        entries: cleanData.entries?.map((entry: any) => {
-          // Clean each entry to remove undefined values
-          const cleanEntry: any = {};
-          Object.keys(entry).forEach(key => {
-            if (entry[key] !== undefined) {
-              cleanEntry[key] = entry[key];
-            }
-          });
-          
-          return {
-            ...cleanEntry,
-            date: cleanEntry.date?.toDate() || new Date()
-          };
-        }) || [],
-        createdAt: cleanData.createdAt?.toDate() || new Date(),
-        updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-        submittedAt: cleanData.submittedAt?.toDate(),
-        approvedAt: cleanData.approvedAt?.toDate(),
-        rejectedAt: cleanData.rejectedAt?.toDate()
+        ...data,
+        weekStartDate: data.weekStartDate?.toDate() || new Date(),
+        weekEndDate: data.weekEndDate?.toDate() || new Date(),
+        entries: data.entries?.map((entry: any) => ({
+          ...entry,
+          date: entry.date?.toDate() || new Date()
+        })) || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+        submittedAt: data.submittedAt?.toDate(),
+        approvedAt: data.approvedAt?.toDate(),
+        rejectedAt: data.rejectedAt?.toDate()
       } as Timesheet;
     } catch (error) {
       console.error('Error getting current week timesheet:', error);
@@ -437,39 +279,20 @@ export class TimesheetService {
     return onSnapshot(q, (querySnapshot) => {
       const timesheets = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        
-        // Clean the data to remove any undefined values
-        const cleanData: any = {};
-        Object.keys(data).forEach(key => {
-          if (data[key] !== undefined) {
-            cleanData[key] = data[key];
-          }
-        });
-        
         return {
           id: doc.id,
-          ...cleanData,
-          weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-          weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-          entries: cleanData.entries?.map((entry: any) => {
-            // Clean each entry to remove undefined values
-            const cleanEntry: any = {};
-            Object.keys(entry).forEach(key => {
-              if (entry[key] !== undefined) {
-                cleanEntry[key] = entry[key];
-              }
-            });
-            
-            return {
-              ...cleanEntry,
-              date: cleanEntry.date?.toDate() || new Date()
-            };
-          }) || [],
-          createdAt: cleanData.createdAt?.toDate() || new Date(),
-          updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-          submittedAt: cleanData.submittedAt?.toDate(),
-          approvedAt: cleanData.approvedAt?.toDate(),
-          rejectedAt: cleanData.rejectedAt?.toDate()
+          ...data,
+          weekStartDate: data.weekStartDate?.toDate() || new Date(),
+          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          entries: data.entries?.map((entry: any) => ({
+            ...entry,
+            date: entry.date?.toDate() || new Date()
+          })) || [],
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          submittedAt: data.submittedAt?.toDate(),
+          approvedAt: data.approvedAt?.toDate(),
+          rejectedAt: data.rejectedAt?.toDate()
         } as Timesheet;
       });
       callback(timesheets);
@@ -485,39 +308,20 @@ export class TimesheetService {
     return onSnapshot(q, (querySnapshot) => {
       const timesheets = querySnapshot.docs.map(doc => {
         const data = doc.data();
-        
-        // Clean the data to remove any undefined values
-        const cleanData: any = {};
-        Object.keys(data).forEach(key => {
-          if (data[key] !== undefined) {
-            cleanData[key] = data[key];
-          }
-        });
-        
         return {
           id: doc.id,
-          ...cleanData,
-          weekStartDate: cleanData.weekStartDate?.toDate() || new Date(),
-          weekEndDate: cleanData.weekEndDate?.toDate() || new Date(),
-          entries: cleanData.entries?.map((entry: any) => {
-            // Clean each entry to remove undefined values
-            const cleanEntry: any = {};
-            Object.keys(entry).forEach(key => {
-              if (entry[key] !== undefined) {
-                cleanEntry[key] = entry[key];
-              }
-            });
-            
-            return {
-              ...cleanEntry,
-              date: cleanEntry.date?.toDate() || new Date()
-            };
-          }) || [],
-          createdAt: cleanData.createdAt?.toDate() || new Date(),
-          updatedAt: cleanData.updatedAt?.toDate() || new Date(),
-          submittedAt: cleanData.submittedAt?.toDate(),
-          approvedAt: cleanData.approvedAt?.toDate(),
-          rejectedAt: cleanData.rejectedAt?.toDate()
+          ...data,
+          weekStartDate: data.weekStartDate?.toDate() || new Date(),
+          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          entries: data.entries?.map((entry: any) => ({
+            ...entry,
+            date: entry.date?.toDate() || new Date()
+          })) || [],
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          submittedAt: data.submittedAt?.toDate(),
+          approvedAt: data.approvedAt?.toDate(),
+          rejectedAt: data.rejectedAt?.toDate()
         } as Timesheet;
       });
       callback(timesheets);

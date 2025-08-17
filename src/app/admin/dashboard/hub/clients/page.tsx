@@ -71,6 +71,7 @@ export default function ClientsDashboardPage() {
   // State for the new client form
   const [companyName, setCompanyName] = useState('');
   const [status, setStatus] = useState('Active');
+  const [email, setEmail] = useState('');
   const [website, setWebsite] = useState('');
   const [address, setAddress] = useState('');
 
@@ -114,18 +115,10 @@ export default function ClientsDashboardPage() {
   const handleCreateClient = async () => {
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/internal/crm/clients', {
+      const response = await fetch('/api/create-client', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-User-Role': 'Admin' 
-        },
-        body: JSON.stringify({ 
-          name: companyName,
-          status: status,
-          address: { fullAddress: address },
-          website: website 
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName, email, status, website, address })
       });
 
       if (!response.ok) {
@@ -133,11 +126,19 @@ export default function ClientsDashboardPage() {
         throw new Error(errorData.message || 'Failed to create client');
       }
       
-      const newClient = await response.json();
-      
-      setClients((prevClients) => [...prevClients, newClient]);
-
-      toast({ title: "Client Created", description: `${companyName} has been added.` });
+      const result = await response.json();
+      setClients((prev) => {
+        const next = prev.slice();
+        const idx = next.findIndex(c => c.id === result.clientId);
+        const newEntry = { id: result.clientId, name: companyName, status, createdAt: new Date() as any } as Client;
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], ...newEntry };
+          return next;
+        }
+        next.push(newEntry);
+        return next;
+      });
+      toast({ title: "Client Created", description: result.message });
       setIsDialogOpen(false);
       resetForm();
 
@@ -262,6 +263,19 @@ export default function ClientsDashboardPage() {
                     className="col-span-3" 
                   />
                 </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="email" className="text-right">
+                    Email
+                  </Label>
+                  <Input 
+                    id="email" 
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="col-span-3" 
+                    placeholder="client@company.com"
+                  />
+                </div>
                  <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="status" className="text-right">
                     Status
@@ -304,7 +318,7 @@ export default function ClientsDashboardPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>Cancel</Button>
-                <Button type="submit" onClick={handleCreateClient} disabled={!companyName || isSubmitting}>
+                <Button type="submit" onClick={handleCreateClient} disabled={!companyName || !email || isSubmitting}>
                   {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Save Client
                 </Button>
@@ -359,10 +373,12 @@ export default function ClientsDashboardPage() {
                   <TableCell>
                     {(() => {
                       if (client.createdAt && typeof client.createdAt === 'object' && 'toDate' in client.createdAt) {
-                        return client.createdAt.toDate().toLocaleDateString();
+                        const d = new Date(client.createdAt.toDate());
+                        return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
                       }
                       if (client.createdAt) {
-                        return new Date(client.createdAt).toLocaleDateString();
+                        const d = new Date(client.createdAt as any);
+                        return isNaN(d.getTime()) ? '' : d.toLocaleDateString();
                       }
                       return '';
                     })()}

@@ -35,11 +35,9 @@ export function TimesheetEntryForm({ entry, projects, date, onSave, onCancel }: 
   });
 
   const handleInputChange = (field: string, value: any) => {
-    // Ensure we never set undefined values
-    const safeValue = value === undefined ? '' : value;
     setFormData(prev => ({
       ...prev,
-      [field]: safeValue
+      [field]: value
     }));
   };
 
@@ -47,7 +45,7 @@ export function TimesheetEntryForm({ entry, projects, date, onSave, onCancel }: 
     const project = projects.find(p => p.id === projectId);
     setFormData(prev => ({
       ...prev,
-      projectId: projectId || '',
+      projectId,
       projectName: project?.name || ''
     }));
   };
@@ -59,59 +57,20 @@ export function TimesheetEntryForm({ entry, projects, date, onSave, onCancel }: 
       return;
     }
 
-    // Validate and clean form data
-    const cleanFormData = {
-      projectId: formData.projectId.trim(),
-      projectName: formData.projectName.trim(),
-      taskId: formData.taskId?.trim() || '',
-      taskName: formData.taskName?.trim() || '',
-      hours: Math.max(0, formData.hours),
-      notes: formData.notes?.trim() || '',
-      startTime: formData.startTime?.trim() || '',
-      endTime: formData.endTime?.trim() || ''
-    };
-
-    // Create the entry object and filter out undefined values
-    const entryData: Partial<TimesheetEntry> = {
+    const newEntry: TimesheetEntry = {
       id: entry?.id || `entry-${Date.now()}`,
       date,
-      projectId: cleanFormData.projectId,
-      projectName: cleanFormData.projectName,
-      hours: cleanFormData.hours,
+      projectId: formData.projectId,
+      projectName: formData.projectName,
+      taskId: formData.taskId || undefined,
+      taskName: formData.taskName || undefined,
+      hours: formData.hours,
+      notes: formData.notes || undefined,
+      startTime: formData.startTime || undefined,
+      endTime: formData.endTime || undefined
     };
 
-    // Only add optional fields if they have values (not empty strings, null, or undefined)
-    if (cleanFormData.taskId && cleanFormData.taskId !== '') {
-      entryData.taskId = cleanFormData.taskId;
-    }
-    if (cleanFormData.taskName && cleanFormData.taskName !== '') {
-      entryData.taskName = cleanFormData.taskName;
-    }
-    if (cleanFormData.notes && cleanFormData.notes !== '') {
-      entryData.notes = cleanFormData.notes;
-    }
-    if (cleanFormData.startTime && cleanFormData.startTime !== '') {
-      entryData.startTime = cleanFormData.startTime;
-    }
-    if (cleanFormData.endTime && cleanFormData.endTime !== '') {
-      entryData.endTime = cleanFormData.endTime;
-    }
-
-    // Final validation - ensure no undefined values exist
-    const finalEntry = entryData as TimesheetEntry;
-    
-    // Log the final entry for debugging
-    console.log('Submitting timesheet entry:', finalEntry);
-    
-    // Double-check that no undefined values exist
-    Object.keys(finalEntry).forEach(key => {
-      if (finalEntry[key as keyof TimesheetEntry] === undefined) {
-        console.warn(`Found undefined value for field: ${key}`);
-        delete finalEntry[key as keyof TimesheetEntry];
-      }
-    });
-
-    onSave(finalEntry);
+    onSave(newEntry);
   };
 
   return (
@@ -204,10 +163,7 @@ export function TimesheetEntryForm({ entry, projects, date, onSave, onCancel }: 
               max="24"
               step="0.5"
               value={formData.hours}
-              onChange={(e) => {
-                const value = parseFloat(e.target.value);
-                handleInputChange('hours', isNaN(value) ? 0 : value);
-              }}
+              onChange={(e) => handleInputChange('hours', parseFloat(e.target.value) || 0)}
               required
             />
           </div>
