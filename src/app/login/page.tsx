@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Logo } from '@/components/logo';
 import { Loader2 } from 'lucide-react';
 import { auth, db, app } from '@/lib/firebase';
+import LogoImage from '@/components/LogoImage';
 
 const loginSchema = z.object({
   email: z
@@ -53,90 +54,90 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
-        const credential = await signInWithEmailAndPassword(auth, data.email, data.password);
+      const credential = await signInWithEmailAndPassword(auth, data.email, data.password);
 
-        const userId = credential.user?.uid;
-        if (!userId) {
-          throw new Error('No user ID returned from authentication.');
+      const userId = credential.user?.uid;
+      if (!userId) {
+        throw new Error('No user ID returned from authentication.');
+      }
+
+      // Fetch role: try Firestore first, then fall back to Realtime Database
+      let role: string | undefined;
+      let userData: any = null;
+
+      try {
+        const userDocRef = doc(db, 'users', userId);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          userData = userDocSnap.data();
+          role = userData?.role;
+          console.log('User data from Firestore:', userData);
+        } else {
+          console.log('User document not found in Firestore for UID:', userId);
         }
+      } catch (err) {
+        console.error('Error fetching role from Firestore:', err);
+      }
 
-        // Fetch role: try Firestore first, then fall back to Realtime Database
-        let role: string | undefined;
-        let userData: any = null;
-
+      if (!role) {
         try {
-          const userDocRef = doc(db, 'users', userId);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-            userData = userDocSnap.data();
-            role = userData?.role;
-            console.log('User data from Firestore:', userData);
+          const rtdb = getDatabase(app);
+          const roleSnap = await getFromRealtimeDb(ref(rtdb, `users/${userId}/role`));
+          if (roleSnap.exists()) {
+            role = roleSnap.val();
+            console.log('Role from Realtime Database:', role);
           } else {
-            console.log('User document not found in Firestore for UID:', userId);
+            console.log('Role not found in Realtime Database for UID:', userId);
           }
         } catch (err) {
-          console.error('Error fetching role from Firestore:', err);
+          console.error('Error fetching role from Realtime Database:', err);
         }
+      }
 
-        if (!role) {
-          try {
-            const rtdb = getDatabase(app);
-            const roleSnap = await getFromRealtimeDb(ref(rtdb, `users/${userId}/role`));
-            if (roleSnap.exists()) {
-              role = roleSnap.val();
-              console.log('Role from Realtime Database:', role);
-            } else {
-              console.log('Role not found in Realtime Database for UID:', userId);
-            }
-          } catch (err) {
-            console.error('Error fetching role from Realtime Database:', err);
-          }
-        }
-
-        const validRoles = ['Admin', 'Employee', 'Client', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin'] as const;
-        if (!role || !validRoles.includes(role as (typeof validRoles)[number])) {
-          await signOut(auth);
-          console.error('Role validation failed:', { role, validRoles, userId, userData });
-          toast({
-            variant: 'destructive',
-            title: 'Login Failed',
-            description: `Your account role (${role || 'missing'}) is not recognized. Please contact support.`,
-          });
-          form.reset({ email: data.email, password: '' });
-          return;
-        }
-
-        const redirectByRole: Record<string, string> = {
-          Admin: '/admin/dashboard',
-          Employee: '/employee/dashboard',
-          Client: '/client/dashboard',
-          HR: '/employee/dashboard', // HR users go to employee dashboard
-          'Team Lead': '/employee/dashboard', // Team Lead users go to employee dashboard
-          'Business Development': '/employee/dashboard', // Business Development users go to employee dashboard
-          'Sub-Admin': '/employee/dashboard', // Sub-Admin users go to employee dashboard
-        };
-
+      const validRoles = ['Admin', 'Employee', 'Client', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin'] as const;
+      if (!role || !validRoles.includes(role as (typeof validRoles)[number])) {
+        await signOut(auth);
+        console.error('Role validation failed:', { role, validRoles, userId, userData });
         toast({
-          title: 'Login Successful',
-          description: 'Welcome back! Redirecting to your dashboard...',
+          variant: 'destructive',
+          title: 'Login Failed',
+          description: `Your account role (${role || 'missing'}) is not recognized. Please contact support.`,
         });
-        router.push(redirectByRole[role]);
+        form.reset({ email: data.email, password: '' });
+        return;
+      }
+
+      const redirectByRole: Record<string, string> = {
+        Admin: '/admin/dashboard',
+        Employee: '/employee/dashboard',
+        Client: '/client/dashboard',
+        HR: '/employee/dashboard', // HR users go to employee dashboard
+        'Team Lead': '/employee/dashboard', // Team Lead users go to employee dashboard
+        'Business Development': '/employee/dashboard', // Business Development users go to employee dashboard
+        'Sub-Admin': '/employee/dashboard', // Sub-Admin users go to employee dashboard
+      };
+
+      toast({
+        title: 'Login Successful',
+        description: 'Welcome back! Redirecting to your dashboard...',
+      });
+      router.push(redirectByRole[role]);
     } catch (error: any) {
-        let errorMessage = "Invalid credentials. Please check your email and password.";
-        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-            errorMessage = "Invalid email or password. Please try again.";
-        } else {
-            console.error("Firebase Auth Error:", error);
-        }
-        toast({
-            variant: "destructive",
-            title: "Login Failed",
-            description: errorMessage,
-        });
-        form.reset({
-            email: data.email,
-            password: '',
-        });
+      let errorMessage = "Invalid credentials. Please check your email and password.";
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        errorMessage = "Invalid email or password. Please try again.";
+      } else {
+        console.error("Firebase Auth Error:", error);
+      }
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: errorMessage,
+      });
+      form.reset({
+        email: data.email,
+        password: '',
+      });
     }
   };
 
@@ -146,8 +147,9 @@ export default function LoginPage() {
         <div className="mx-auto grid w-[380px] gap-6">
           <div className="grid gap-2 text-center">
             <div className="flex items-center justify-center gap-2">
-               <Logo className="h-8 w-8 text-primary" />
-               <h1 className="text-3xl font-bold">Upteky Central</h1>
+              <LogoImage size={160} className="h-auto w-auto" />
+              {/* <Logo className="h-8 w-8 text-primary" />
+              <h1 className="text-3xl font-bold">Upteky Central</h1> */}
             </div>
             <p className="text-balance text-muted-foreground">
               Enter your Upteky email and password to access your account.

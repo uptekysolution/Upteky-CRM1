@@ -10,7 +10,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Upteky Central',
+  title: 'Upteky Solution Pvt Ltd',
   description: 'The centralized hub for Upteky Solution Pvt Ltd.',
 };
 

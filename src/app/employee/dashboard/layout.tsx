@@ -58,6 +58,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { cn } from '@/lib/utils';
 import { RoleGuard } from '@/components/role-guard';
 import { useRolePermissions, PermissionName } from '@/hooks/use-role-permissions';
+import LogoImage from '@/components/LogoImage';
 
 
 // --- NAVIGATION ITEMS ---
@@ -102,7 +103,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
       router.push('/login');
     } catch (error) {
-      toast({ variant: 'destructive', title: "Logout Failed", description: "Could not log you out. Please try again."});
+      toast({ variant: 'destructive', title: "Logout Failed", description: "Could not log you out. Please try again." });
     }
   };
 
@@ -121,59 +122,60 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <RoleGuard allowedRoles={['Employee', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin']} fallbackPath="/login">
       <SidebarProvider>
-      <Sidebar>
-        <SidebarContent>
-          <SidebarHeader>
-            <div className="flex items-center gap-2">
-               <Logo className="size-7 text-primary" />
-               <span className="text-lg font-semibold">Upteky Central</span>
-            </div>
-          </SidebarHeader>
-          <SidebarMenu>
-            {visibleNavItems.map((item) => (
-              <SidebarMenuItem key={item.href}>
-                <SidebarMenuButton asChild tooltip={item.label} isActive={pathname === item.href}>
-                  <Link href={item.href}>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-
-            {hasClientHubAccess && (
-              <Collapsible defaultOpen={pathname.startsWith('/dashboard/hub')}>
-                <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                       <SidebarMenuButton className="justify-between w-full">
-                         <div className="flex items-center gap-2">
-                           <Briefcase />
-                           <span>Client Hub</span>
-                         </div>
-                         <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
-                       </SidebarMenuButton>
-                    </CollapsibleTrigger>
+        <Sidebar>
+          <SidebarContent>
+            <SidebarHeader>
+              <div className="flex items-center gap-2">
+                <LogoImage size={160} className="h-auto w-auto" />
+                {/* <Logo className="size-7 text-primary" />
+                <span className="text-lg font-semibold">Upteky Central</span> */}
+              </div>
+            </SidebarHeader>
+            <SidebarMenu>
+              {visibleNavItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton asChild tooltip={item.label} isActive={pathname === item.href}>
+                    <Link href={item.href}>
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
-                <CollapsibleContent>
+              ))}
+
+              {hasClientHubAccess && (
+                <Collapsible defaultOpen={pathname.startsWith('/dashboard/hub')}>
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton className="justify-between w-full">
+                        <div className="flex items-center gap-2">
+                          <Briefcase />
+                          <span>Client Hub</span>
+                        </div>
+                        <ChevronDown className="h-4 w-4 transition-transform [&[data-state=open]]:rotate-180" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                  </SidebarMenuItem>
+                  <CollapsibleContent>
                     <SidebarMenu className="ml-4 mt-2 border-l border-border pl-4">
-                       {visibleClientHubNavItems.map((item) => (
-                         <SidebarMenuItem key={item.href}>
-                           <SidebarMenuButton asChild tooltip={item.label} isActive={pathname === item.href}>
-                             <Link href={item.href}>
-                               <item.icon />
-                               <span>{item.label}</span>
-                             </Link>
-                           </SidebarMenuButton>
-                         </SidebarMenuItem>
-                       ))}
+                      {visibleClientHubNavItems.map((item) => (
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton asChild tooltip={item.label} isActive={pathname === item.href}>
+                            <Link href={item.href}>
+                              <item.icon />
+                              <span>{item.label}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
                     </SidebarMenu>
-                </CollapsibleContent>
-              </Collapsible>
-            )}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
 
-          </SidebarMenu>
+            </SidebarMenu>
 
-          {/* {hasAdminAccess && (
+            {/* {hasAdminAccess && (
             <SidebarMenu className="mt-auto">
               <SidebarMenuItem>
                 <span className="px-2 text-xs font-medium text-muted-foreground">Admin</span>
@@ -190,71 +192,71 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               ))}
             </SidebarMenu>
           )} */}
-        </SidebarContent>
-        {/* <SidebarFooter>
+          </SidebarContent>
+          {/* <SidebarFooter>
            <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
               <LogOut />
               <span>Logout</span>
             </SidebarMenuButton>
         </SidebarFooter> */}
-      </Sidebar>
-      <SidebarInset>
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <SidebarTrigger className="sm:hidden" />
-              </TooltipTrigger>
-              <TooltipContent>Toggle Sidebar</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <div className="relative ml-auto flex-1 md:grow-0">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search..."
-              className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[320px]"
-            />
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="overflow-hidden rounded-full"
-              >
-                <Avatar>
-                  <AvatarImage src="https://placehold.co/32x32.png" data-ai-hint="avatar woman" alt="@shadcn" />
-                  <AvatarFallback>U</AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User className="mr-2 h-4 w-4" />
-                <span>Profile</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} className='flex items-center cursor-pointer'>
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </header>
-        <main className="flex flex-1 flex-col gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
-          {children}
-          <footer className="text-center text-sm text-muted-foreground py-4">
+        </Sidebar>
+        <SidebarInset>
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarTrigger className="sm:hidden" />
+                </TooltipTrigger>
+                <TooltipContent>Toggle Sidebar</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <div className="relative ml-auto flex-1 md:grow-0">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Search..."
+                className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[320px]"
+              />
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="overflow-hidden rounded-full"
+                >
+                  <Avatar>
+                    <AvatarImage src="https://placehold.co/32x32.png" data-ai-hint="avatar woman" alt="@shadcn" />
+                    <AvatarFallback>U</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className='flex items-center cursor-pointer'>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Logout</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </header>
+          <main className="flex flex-1 flex-col gap-4 p-4 sm:px-6 sm:py-0 md:gap-8">
+            {children}
+            <footer className="text-center text-sm text-muted-foreground py-4">
               © {new Date().getFullYear()} Upteky Solution Pvt Ltd. All rights reserved. | <Link href="#" className="underline">Privacy Policy</Link> | <Link href="#" className="underline">Terms of Service</Link>
-          </footer>
-        </main>
-      </SidebarInset>
+            </footer>
+          </main>
+        </SidebarInset>
       </SidebarProvider>
     </RoleGuard>
   );
