@@ -8,7 +8,8 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  serverExternalPackages: ['pdfkit-next'],
+  // Avoid Edge runtime issues by not marking Node-only packages as externals globally
+  // serverExternalPackages: ['pdfkit-next'],
   images: {
     remotePatterns: [
       {

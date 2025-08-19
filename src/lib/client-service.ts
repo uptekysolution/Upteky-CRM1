@@ -60,6 +60,22 @@ export async function createClient(payload: Partial<ClientRecord>): Promise<Clie
   return await res.json();
 }
 
+export async function createClientWithOnboarding(payload: Partial<ClientRecord>): Promise<ClientRecord> {
+  const res = await fetch('/api/addClient', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.message || 'Failed to create client and send email')
+  }
+  const data = await res.json()
+  return data.client as ClientRecord
+}
+
 export async function updateClient(id: string, payload: Partial<ClientRecord>): Promise<ClientRecord> {
   const res = await fetch(`/api/internal/crm/clients/${id}`, {
     method: 'PUT',

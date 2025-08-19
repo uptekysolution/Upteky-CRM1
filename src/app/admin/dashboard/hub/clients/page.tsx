@@ -14,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ClientFilters, FilterState } from '@/components/client-hub/ClientFilters'
 import { ClientForm, ClientFormValues } from '@/components/client-hub/ClientForm'
-import { ClientRecord, createClient, deleteClient, listClients, updateClient } from '@/lib/client-service'
+import { ClientRecord, createClientWithOnboarding, deleteClient, listClients, updateClient } from '@/lib/client-service'
 
 export default function ClientsDashboardPage() {
   const { toast } = useToast()
@@ -57,10 +57,10 @@ export default function ClientsDashboardPage() {
   const handleCreate = async (values: ClientFormValues) => {
     setSubmitting(true)
     try {
-      const created = await createClient(values)
+      const created = await createClientWithOnboarding(values)
       setClients((prev) => [created, ...prev])
       setModalMode(null)
-      toast({ title: 'Client created' })
+      toast({ title: 'Client created and email sent successfully' })
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Create failed', description: e.message })
     } finally {

@@ -1,33 +1,35 @@
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import * as serviceAccount from '../../serviceAccountKey.json';
+import serviceAccount from '../../serviceAccountKey.json';
 
 let app: App;
 
 try {
   console.log('Initializing Firebase Admin...');
-  console.log('Service account project_id:', (serviceAccount as any).project_id);
+  const sa: any = (serviceAccount as any)?.default ?? (serviceAccount as any);
+  console.log('Service account project_id:', sa?.project_id);
   
   // Validate service account key
-  if (!(serviceAccount as any).project_id) {
+  if (!sa?.project_id) {
     throw new Error('Invalid service account key: missing project_id');
   }
   
-  if (!(serviceAccount as any).private_key) {
+  if (!sa?.private_key) {
     throw new Error('Invalid service account key: missing private_key');
   }
   
-  if (!(serviceAccount as any).client_email) {
+  if (!sa?.client_email) {
     throw new Error('Invalid service account key: missing client_email');
   }
   
   console.log('Service account key validation passed');
   
   if (getApps().length === 0) {
+    const key = { ...sa, private_key: String(sa.private_key) };
     app = initializeApp({
-      credential: cert(serviceAccount as any),
-      projectId: (serviceAccount as any).project_id,
+      credential: cert(key as any),
+      projectId: sa.project_id,
     });
     console.log('Firebase Admin initialized successfully');
   } else {

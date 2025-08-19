@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { getDatabase, ref, get as getFromRealtimeDb } from 'firebase/database';
 
@@ -29,10 +29,7 @@ import LogoImage from '@/components/LogoImage';
 const loginSchema = z.object({
   email: z
     .string()
-    .email({ message: 'Please enter a valid email address.' })
-    .refine(email => email.endsWith('@upteky.com'), {
-      message: 'Access is restricted to company employees with an @upteky.com email.',
-    }),
+    .email({ message: 'Please enter a valid email address.' }),
   password: z
     .string()
     .min(1, { message: 'Password is required.' }),
@@ -107,6 +104,21 @@ export default function LoginPage() {
         return;
       }
 
+      // Additional domain-role enforcement
+      const isUpteky = data.email.toLowerCase().endsWith('@upteky.com')
+      if (isUpteky && !['Admin','Employee','HR','Team Lead','Business Development','Sub-Admin'].includes(role as string)) {
+        await signOut(auth)
+        toast({ variant: 'destructive', title: 'Unauthorized', description: 'Use a client account for non-upteky roles.' })
+        form.reset({ email: data.email, password: '' })
+        return
+      }
+      if (!isUpteky && role !== 'Client') {
+        await signOut(auth)
+        toast({ variant: 'destructive', title: 'Unauthorized', description: 'Only clients can log in with external emails.' })
+        form.reset({ email: data.email, password: '' })
+        return
+      }
+
       const redirectByRole: Record<string, string> = {
         Admin: '/admin/dashboard',
         Employee: '/employee/dashboard',
@@ -121,6 +133,13 @@ export default function LoginPage() {
         title: 'Login Successful',
         description: 'Welcome back! Redirecting to your dashboard...',
       });
+      // Set session cookie for middleware
+      try {
+        const idToken = await credential.user.getIdToken()
+        await fetch('/api/auth/setSession', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, role }) })
+      } catch (e) {
+        // ignore
+      }
       router.push(redirectByRole[role]);
     } catch (error: any) {
       let errorMessage = "Invalid credentials. Please check your email and password.";
@@ -140,6 +159,20 @@ export default function LoginPage() {
       });
     }
   };
+
+  const handleForgotPassword = async () => {
+    const email = String((form.getValues().email || '')).trim()
+    if (!email) {
+      toast({ variant: 'destructive', title: 'Enter your email first' })
+      return
+    }
+    try {
+      await sendPasswordResetEmail(auth, email)
+      toast({ title: 'Reset email sent', description: 'Check your inbox for the password reset link.' })
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Reset failed', description: e?.message || 'Could not send reset email' })
+    }
+  }
 
   return (
     <div className="w-full lg:grid lg:min-h-screen lg:grid-cols-2 xl:min-h-screen">
@@ -186,6 +219,9 @@ export default function LoginPage() {
               <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {form.formState.isSubmitting ? 'Signing In...' : 'Sign In'}
+              </Button>
+              <Button type="button" variant="link" onClick={handleForgotPassword} className="w-full p-0">
+                Forgot Password?
               </Button>
             </form>
           </Form>

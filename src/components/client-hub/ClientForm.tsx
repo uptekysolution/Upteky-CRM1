@@ -42,7 +42,7 @@ export function ClientForm({
     position: '',
     industry: '',
     website: '',
-    status: 'Active',
+    status: 'Pending activation',
     description: '',
     logoUrl: '',
   })
@@ -204,6 +204,7 @@ export function ClientForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="Pending activation">Pending activation</SelectItem>
               <SelectItem value="Active">Active</SelectItem>
               <SelectItem value="Prospect">Prospect</SelectItem>
               <SelectItem value="Inactive">Inactive</SelectItem>
