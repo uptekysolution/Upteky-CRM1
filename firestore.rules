@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Users can read their own user document; admins can read all if custom claim set
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.token.admin == true);
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || request.auth.token.admin == true);
+      allow delete: if false;
+    }
+
+    // Tickets collection with per-client access controls
+    match /tickets/{ticketId} {
+      allow read: if isSignedIn() && (
+        resource.data.clientId == request.auth.uid || request.auth.token.admin == true
+      );
+
+      allow create: if isSignedIn() && (
+        request.resource.data.clientId == request.auth.uid || request.auth.token.admin == true
+      ) &&
+      request.resource.data.title is string &&
+      request.resource.data.description is string &&
+      request.resource.data.priority in ['low','medium','high'];
+
+      // Client can update limited fields on own ticket; admin can update all
+      allow update: if isSignedIn() && (
+        request.auth.token.admin == true || (
+          resource.data.clientId == request.auth.uid &&
+          request.resource.data.diff(resource.data).changedKeys().hasOnly(['title','description','priority','lastMessage','lastUpdated','unreadByAdmin'])
+        )
+      );
+
+      allow delete: if isSignedIn() && request.auth.token.admin == true;
+
+      // Messages subcollection inherits parent access. Client can only write own messages.
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/tickets/$(ticketId)).data.clientId == request.auth.uid || request.auth.token.admin == true
+        );
+
+        allow create: if isSignedIn() && (
+          request.resource.data.senderId == request.auth.uid
+        );
+
+        allow update, delete: if false; // immutable messages
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+

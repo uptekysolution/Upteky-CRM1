@@ -14,9 +14,9 @@ async function checkPermission(req: NextRequest, requiredPermissions: string[]):
 
     // Define role-permission mapping
     const rolePermissionsMap: { [key: string]: string[] } = {
-        'Admin': ['clients:view', 'clients:create'],
-        'Sub-Admin': ['clients:view', 'clients:create'],
-        'HR': ['clients:view', 'clients:create'],
+        'Admin': ['clients:view', 'clients:create', 'clients:update', 'clients:delete'],
+        'Sub-Admin': ['clients:view', 'clients:create', 'clients:update'],
+        'HR': ['clients:view'],
         'Team Lead': ['clients:view'],
         'Business Development': ['clients:view', 'clients:create'],
     };
@@ -40,8 +40,34 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const clientSnapshot = await db.collection('clients').get();
-        const clientsList = clientSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const { searchParams } = new URL(req.url);
+        const search = searchParams.get('search')?.toLowerCase() || '';
+        const status = searchParams.get('status') || '';
+        const industry = searchParams.get('industry') || '';
+        const dateFromStr = searchParams.get('from') || '';
+
+        let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection('clients');
+
+        if (status) {
+            query = query.where('status', '==', status);
+        }
+        if (industry) {
+            query = query.where('industry', '==', industry);
+        }
+        if (dateFromStr) {
+            const dateFrom = new Date(dateFromStr);
+            if (!isNaN(dateFrom.getTime())) {
+                query = query.where('createdAt', '>=', dateFrom);
+            }
+        }
+
+        if (search) {
+            // Prefix search on nameLower
+            query = query.orderBy('nameLower').startAt(search).endAt(search + '\uf8ff');
+        }
+
+        const snapshot = await query.get();
+        const clientsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return NextResponse.json(clientsList);
     } catch (error) {
         console.error("Error fetching clients:", error);
@@ -58,35 +84,52 @@ export async function POST(req: NextRequest) {
 
     try {
         const body = await req.json();
-        const { name, status, address, primaryContactId } = body;
+        const {
+            firstName,
+            lastName,
+            email,
+            phone,
+            position,
+            industry,
+            website,
+            status,
+            description,
+            logoUrl,
+        } = body || {};
 
-        // Server-side validation
-        if (typeof name !== 'string' || name.trim() === '') {
-            return NextResponse.json({ message: 'Client name is required and must be a non-empty string' }, { status: 400 });
+        if (typeof firstName !== 'string' || firstName.trim() === '') {
+            return NextResponse.json({ message: 'First name is required' }, { status: 400 });
         }
-        if (status && typeof status !== 'string') {
-            return NextResponse.json({ message: 'Status must be a string if provided' }, { status: 400 });
+        if (typeof lastName !== 'string' || lastName.trim() === '') {
+            return NextResponse.json({ message: 'Last name is required' }, { status: 400 });
         }
-        if (address && (typeof address !== 'object' || Array.isArray(address) || address === null)) {
-            return NextResponse.json({ message: 'Address must be an object if provided' }, { status: 400 });
-        }
-        if (primaryContactId && typeof primaryContactId !== 'string') {
-            return NextResponse.json({ message: 'Primary contact ID must be a string if provided' }, { status: 400 });
+        if (email && typeof email !== 'string') {
+            return NextResponse.json({ message: 'Invalid email' }, { status: 400 });
         }
 
-
-        const newClient = {
-            name: name.trim(),
-            status: status || 'Active', // Default status
-            address: address || {},
-            primaryContactId: primaryContactId || null,
-            createdAt: new Date(), // Add server-side timestamp
+        const name = `${firstName.trim()} ${lastName.trim()}`.trim();
+        const now = new Date();
+        const docData = {
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            name,
+            nameLower: name.toLowerCase(),
+            email: email || '',
+            phone: phone || '',
+            position: position || '',
+            industry: industry || '',
+            website: website || '',
+            status: status || 'Active',
+            description: description || '',
+            logoUrl: logoUrl || '',
+            projectsCount: 0,
+            lastContactAt: null as Date | null,
+            createdAt: now,
+            updatedAt: now,
         };
 
-        const docRef = await db.collection('clients').add(newClient);
-
-        return NextResponse.json({ id: docRef.id, ...newClient }, { status: 201 });
-
+        const docRef = await db.collection('clients').add(docData);
+        return NextResponse.json({ id: docRef.id, ...docData }, { status: 201 });
     } catch (error) {
         console.error("Error creating client:", error);
         return NextResponse.json({ message: 'An internal server error occurred while creating the client.' }, { status: 500 });
