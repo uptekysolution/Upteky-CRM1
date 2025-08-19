@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -11,6 +12,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { getDatabase, ref, get as getFromRealtimeDb } from 'firebase/database';
 
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Form,
   FormControl,
@@ -40,6 +42,9 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotSubmitting, setForgotSubmitting] = useState(false)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -160,17 +165,31 @@ export default function LoginPage() {
     }
   };
 
-  const handleForgotPassword = async () => {
-    const email = String((form.getValues().email || '')).trim()
+  const handleResetPassword = async () => {
+    const email = String(forgotEmail || '').trim() || String((form.getValues().email || '')).trim()
     if (!email) {
-      toast({ variant: 'destructive', title: 'Enter your email first' })
+      toast({ variant: 'destructive', title: 'Enter your email' })
       return
     }
+    setForgotSubmitting(true)
     try {
-      await sendPasswordResetEmail(auth, email)
-      toast({ title: 'Reset email sent', description: 'Check your inbox for the password reset link.' })
+      const res = await fetch('/api/auth/sendPasswordReset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.message || 'Failed to send reset email')
+      }
+      toast({ title: 'Reset email sent. Check your inbox.' })
+      setForgotOpen(false)
+      setForgotEmail('')
+      router.push('/login')
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Reset failed', description: e?.message || 'Could not send reset email' })
+    } finally {
+      setForgotSubmitting(false)
     }
   }
 
@@ -220,7 +239,7 @@ export default function LoginPage() {
                 {form.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {form.formState.isSubmitting ? 'Signing In...' : 'Sign In'}
               </Button>
-              <Button type="button" variant="link" onClick={handleForgotPassword} className="w-full p-0">
+              <Button type="button" variant="link" onClick={() => setForgotOpen(true)} className="w-full p-0">
                 Forgot Password?
               </Button>
             </form>
@@ -237,6 +256,29 @@ export default function LoginPage() {
           className="h-full w-full object-cover dark:brightness-[0.3]"
         />
       </div>
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset your password</DialogTitle>
+            <DialogDescription>Enter your account email to receive a reset link.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={forgotEmail}
+              onChange={(e) => setForgotEmail(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setForgotOpen(false)} disabled={forgotSubmitting}>Cancel</Button>
+            <Button onClick={handleResetPassword} disabled={forgotSubmitting}>
+              {forgotSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {forgotSubmitting ? 'Sending…' : 'Send reset link'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
