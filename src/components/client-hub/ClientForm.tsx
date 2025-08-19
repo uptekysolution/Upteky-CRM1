@@ -47,6 +47,7 @@ export function ClientForm({
     logoUrl: '',
   })
   const [uploading, setUploading] = useState(false)
+  const [errors, setErrors] = useState<Partial<Record<keyof ClientFormValues, string>>>({})
 
   useEffect(() => {
     if (initial) {
@@ -79,22 +80,79 @@ export function ClientForm({
     }
   }
 
+  const validate = (v: ClientFormValues) => {
+    const nextErrors: Partial<Record<keyof ClientFormValues, string>> = {}
+    if (!v.firstName.trim()) nextErrors.firstName = 'First name is required'
+    if (!v.lastName.trim()) nextErrors.lastName = 'Last name is required'
+    if (!v.email.trim()) nextErrors.email = 'Email is required'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) nextErrors.email = 'Enter a valid email'
+    if (v.website && !/^https?:\/\//i.test(v.website)) nextErrors.website = 'Start with http:// or https://'
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  const handleSubmit = () => {
+    if (validate(values)) {
+      onSubmit(values)
+    }
+  }
+
   return (
     <div className="grid gap-4 py-2">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label>First Name</Label>
-          <Input value={values.firstName} onChange={(e) => setValues((s) => ({ ...s, firstName: e.target.value }))} />
+          <Label>
+            First Name <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            required
+            aria-invalid={!!errors.firstName}
+            value={values.firstName}
+            onChange={(e) => {
+              const next = e.target.value
+              setValues((s) => ({ ...s, firstName: next }))
+              if (errors.firstName) setErrors((er) => ({ ...er, firstName: next.trim() ? '' : 'First name is required' }))
+            }}
+          />
+          {errors.firstName ? <div className="mt-1 text-xs text-red-600">{errors.firstName}</div> : null}
         </div>
         <div>
-          <Label>Last Name</Label>
-          <Input value={values.lastName} onChange={(e) => setValues((s) => ({ ...s, lastName: e.target.value }))} />
+          <Label>
+            Last Name <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            required
+            aria-invalid={!!errors.lastName}
+            value={values.lastName}
+            onChange={(e) => {
+              const next = e.target.value
+              setValues((s) => ({ ...s, lastName: next }))
+              if (errors.lastName) setErrors((er) => ({ ...er, lastName: next.trim() ? '' : 'Last name is required' }))
+            }}
+          />
+          {errors.lastName ? <div className="mt-1 text-xs text-red-600">{errors.lastName}</div> : null}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label>Email</Label>
-          <Input type="email" value={values.email} onChange={(e) => setValues((s) => ({ ...s, email: e.target.value }))} />
+          <Label>
+            Email <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            type="email"
+            required
+            aria-invalid={!!errors.email}
+            value={values.email}
+            onChange={(e) => {
+              const next = e.target.value
+              setValues((s) => ({ ...s, email: next }))
+              if (errors.email) setErrors((er) => ({
+                ...er,
+                email: !next.trim() ? 'Email is required' : (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next) ? '' : 'Enter a valid email'),
+              }))
+            }}
+          />
+          {errors.email ? <div className="mt-1 text-xs text-red-600">{errors.email}</div> : null}
         </div>
         <div>
           <Label>Phone</Label>
@@ -125,10 +183,22 @@ export function ClientForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label>Website</Label>
-          <Input value={values.website} onChange={(e) => setValues((s) => ({ ...s, website: e.target.value }))} placeholder="https://example.com" />
+          <Input
+            aria-invalid={!!errors.website}
+            value={values.website}
+            onChange={(e) => {
+              const next = e.target.value
+              setValues((s) => ({ ...s, website: next }))
+              if (errors.website) setErrors((er) => ({ ...er, website: next && /^https?:\/\//i.test(next) ? '' : 'Start with http:// or https://' }))
+            }}
+            placeholder="https://example.com"
+          />
+          {errors.website ? <div className="mt-1 text-xs text-red-600">{errors.website}</div> : null}
         </div>
         <div>
-          <Label>Status</Label>
+          <Label>
+            Status <span className="text-red-500">*</span>
+          </Label>
           <Select value={values.status} onValueChange={(v) => setValues((s) => ({ ...s, status: v }))}>
             <SelectTrigger>
               <SelectValue />
@@ -154,7 +224,7 @@ export function ClientForm({
       </div>
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="outline" onClick={onCancel} disabled={!!submitting}>Cancel</Button>
-        <Button onClick={() => onSubmit(values)} disabled={!!submitting || uploading}>
+        <Button onClick={handleSubmit} disabled={!!submitting || uploading}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
         </Button>
       </div>

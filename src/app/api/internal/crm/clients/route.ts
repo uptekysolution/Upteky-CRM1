@@ -103,8 +103,8 @@ export async function POST(req: NextRequest) {
         if (typeof lastName !== 'string' || lastName.trim() === '') {
             return NextResponse.json({ message: 'Last name is required' }, { status: 400 });
         }
-        if (email && typeof email !== 'string') {
-            return NextResponse.json({ message: 'Invalid email' }, { status: 400 });
+        if (typeof email !== 'string' || email.trim() === '') {
+            return NextResponse.json({ message: 'Email is required' }, { status: 400 });
         }
 
         const name = `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
             lastName: lastName.trim(),
             name,
             nameLower: name.toLowerCase(),
-            email: email || '',
+            email: email.trim(),
             phone: phone || '',
             position: position || '',
             industry: industry || '',
