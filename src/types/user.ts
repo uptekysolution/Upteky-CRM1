@@ -23,6 +23,7 @@ export type UserRole =
   | 'Team Lead'
   | 'Employee'
   | 'Business Development'
+  | 'BDE'
   | 'Client';
 
 export type UserStatus = 'Active' | 'Inactive' | 'Suspended';

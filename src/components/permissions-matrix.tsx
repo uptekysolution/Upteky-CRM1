@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { PermissionName } from '@/hooks/use-role-permissions';
+import { Plus, Trash2, Save, Loader2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface RolePermissions {
   permissions: PermissionName[];
@@ -50,55 +52,57 @@ const permissionDescriptions: Record<PermissionName, string> = {
   'teams:manage': 'Manage teams and projects'
 };
 
-const roles = ['Employee', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin'];
+const defaultRoles = ['Employee', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin'];
 
 export function PermissionsMatrix() {
   const [rolePermissions, setRolePermissions] = useState<Record<string, PermissionName[]>>({});
+  const [roles, setRoles] = useState<string[]>(defaultRoles);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [roleToDelete, setRoleToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    const unsubscribes: (() => void)[] = [];
+    fetchRolePermissions();
+  }, []);
 
-    // Listen to all role permissions
-    roles.forEach(role => {
-      const roleDocRef = doc(db, 'role_permissions', role);
-      const unsubscribe = onSnapshot(
-        roleDocRef,
-        (doc) => {
-          if (doc.exists()) {
-            const data = doc.data() as RolePermissions;
-            setRolePermissions(prev => ({
-              ...prev,
-              [role]: data.permissions || []
-            }));
-          } else {
-            // Initialize with default permissions if document doesn't exist
-            const defaultPermissions: PermissionName[] = getDefaultPermissions(role);
-            setRolePermissions(prev => ({
-              ...prev,
-              [role]: defaultPermissions
-            }));
-          }
-        },
-        (error) => {
-          console.error(`Error listening to ${role} permissions:`, error);
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: `Failed to load ${role} permissions`
-          });
+  const fetchRolePermissions = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/admin/permissions', {
+        headers: { 'X-User-Role': 'Admin' }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch permissions');
+      }
+      
+      const data = await response.json();
+      const permissionsData: Record<string, PermissionName[]> = {};
+      
+      // Initialize with default permissions for roles that don't exist in the database
+      roles.forEach(role => {
+        if (data[role]) {
+          permissionsData[role] = data[role].permissions || [];
+        } else {
+          permissionsData[role] = getDefaultPermissions(role);
         }
-      );
-      unsubscribes.push(unsubscribe);
-    });
-
-    setIsLoading(false);
-
-    return () => {
-      unsubscribes.forEach(unsubscribe => unsubscribe());
-    };
-  }, [toast]);
+      });
+      
+      setRolePermissions(permissionsData);
+    } catch (error) {
+      console.error('Error fetching role permissions:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to load permissions'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const getDefaultPermissions = (role: string): PermissionName[] => {
     const defaults: Record<string, PermissionName[]> = {
@@ -118,10 +122,25 @@ export function PermissionsMatrix() {
         ? [...currentPermissions, permission]
         : currentPermissions.filter(p => p !== permission);
 
-      const roleDocRef = doc(db, 'role_permissions', role);
-      await updateDoc(roleDocRef, {
-        permissions: newPermissions
+      // Update local state immediately for better UX
+      setRolePermissions(prev => ({
+        ...prev,
+        [role]: newPermissions
+      }));
+
+      // Update in backend
+      const response = await fetch(`/api/admin/permissions/${role}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': 'Admin' 
+        },
+        body: JSON.stringify({ permissions: newPermissions })
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to update permission');
+      }
 
       toast({
         title: 'Permission Updated',
@@ -129,11 +148,115 @@ export function PermissionsMatrix() {
       });
     } catch (error) {
       console.error('Error updating permission:', error);
+      // Revert local state on error
+      setRolePermissions(prev => ({
+        ...prev,
+        [role]: rolePermissions[role] || []
+      }));
       toast({
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to update permission'
       });
+    }
+  };
+
+  const handleAddRole = async () => {
+    if (!newRoleName.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Role name is required'
+      });
+      return;
+    }
+
+    if (roles.includes(newRoleName.trim())) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Role already exists'
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch('/api/admin/permissions', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': 'Admin' 
+        },
+        body: JSON.stringify({ 
+          role: newRoleName.trim(),
+          permissions: getDefaultPermissions(newRoleName.trim())
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create role');
+      }
+
+      setRoles(prev => [...prev, newRoleName.trim()]);
+      setRolePermissions(prev => ({
+        ...prev,
+        [newRoleName.trim()]: getDefaultPermissions(newRoleName.trim())
+      }));
+      setNewRoleName('');
+      setShowAddRole(false);
+      
+      toast({
+        title: 'Role Created',
+        description: `New role "${newRoleName.trim()}" has been created`,
+      });
+    } catch (error) {
+      console.error('Error creating role:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to create role'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteRole = async () => {
+    if (!roleToDelete) return;
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/admin/permissions/${roleToDelete}`, {
+        method: 'DELETE',
+        headers: { 'X-User-Role': 'Admin' }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete role');
+      }
+
+      setRoles(prev => prev.filter(role => role !== roleToDelete));
+      setRolePermissions(prev => {
+        const newPermissions = { ...prev };
+        delete newPermissions[roleToDelete];
+        return newPermissions;
+      });
+      
+      toast({
+        title: 'Role Deleted',
+        description: `Role "${roleToDelete}" has been deleted`,
+      });
+    } catch (error) {
+      console.error('Error deleting role:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to delete role'
+      });
+    } finally {
+      setIsSaving(false);
+      setRoleToDelete(null);
     }
   };
 
@@ -157,20 +280,38 @@ export function PermissionsMatrix() {
             Manage permissions for each role. Changes are applied in real-time.
           </p>
         </div>
-        <Badge variant="outline" className="text-sm">
-          Admin role has all permissions (not editable)
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-sm">
+            Admin role has all permissions (not editable)
+          </Badge>
+          <Button size="sm" onClick={() => setShowAddRole(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Role
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6">
         {roles.map(role => (
           <Card key={role}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                {role}
-                <Badge variant="secondary">
-                  {rolePermissions[role]?.length || 0} permissions
-                </Badge>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {role}
+                  <Badge variant="secondary">
+                    {rolePermissions[role]?.length || 0} permissions
+                  </Badge>
+                </div>
+                {role !== 'Admin' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setRoleToDelete(role)}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </CardTitle>
               <CardDescription>
                 Configure what {role} users can access
@@ -202,6 +343,63 @@ export function PermissionsMatrix() {
           </Card>
         ))}
       </div>
+
+      {/* Add Role Dialog */}
+      <Dialog open={showAddRole} onOpenChange={setShowAddRole}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add New Role</DialogTitle>
+            <DialogDescription>
+              Create a new role with default permissions. You can customize permissions after creation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="role-name">Role Name</Label>
+              <Input
+                id="role-name"
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+                placeholder="Enter role name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddRole(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddRole} disabled={isSaving}>
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Role Confirmation Dialog */}
+      <Dialog open={!!roleToDelete} onOpenChange={() => setRoleToDelete(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Delete Role</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the role "{roleToDelete}"? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleToDelete(null)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteRole}
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

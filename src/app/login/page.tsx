@@ -96,14 +96,17 @@ export default function LoginPage() {
         }
       }
 
-      const validRoles = ['Admin', 'Employee', 'Client', 'HR', 'Team Lead', 'Business Development', 'Sub-Admin'] as const;
-      if (!role || !validRoles.includes(role as (typeof validRoles)[number])) {
+      // Normalize role for consistent handling
+      const normalizedRole = String(role || '').trim()
+      
+      const validRoles = ['Admin', 'Employee', 'Client', 'HR', 'Team Lead', 'Business Development', 'BDE', 'Sub-Admin'] as const;
+      if (!normalizedRole || !validRoles.includes(normalizedRole as (typeof validRoles)[number])) {
         await signOut(auth);
-        console.error('Role validation failed:', { role, validRoles, userId, userData });
+        console.error('Role validation failed:', { role: normalizedRole, validRoles, userId, userData });
         toast({
           variant: 'destructive',
           title: 'Login Failed',
-          description: `Your account role (${role || 'missing'}) is not recognized. Please contact support.`,
+          description: `Your account role (${normalizedRole || 'missing'}) is not recognized. Please contact support.`,
         });
         form.reset({ email: data.email, password: '' });
         return;
@@ -111,13 +114,14 @@ export default function LoginPage() {
 
       // Additional domain-role enforcement
       const isUpteky = data.email.toLowerCase().endsWith('@upteky.com')
-      if (isUpteky && !['Admin','Employee','HR','Team Lead','Business Development','Sub-Admin'].includes(role as string)) {
+      const uptekyRoles = ['Admin', 'Employee', 'HR', 'Team Lead', 'Business Development', 'BDE', 'Sub-Admin']
+      if (isUpteky && !uptekyRoles.includes(normalizedRole as string)) {
         await signOut(auth)
         toast({ variant: 'destructive', title: 'Unauthorized', description: 'Use a client account for non-upteky roles.' })
         form.reset({ email: data.email, password: '' })
         return
       }
-      if (!isUpteky && role !== 'Client') {
+      if (!isUpteky && normalizedRole !== 'Client') {
         await signOut(auth)
         toast({ variant: 'destructive', title: 'Unauthorized', description: 'Only clients can log in with external emails.' })
         form.reset({ email: data.email, password: '' })
@@ -131,8 +135,16 @@ export default function LoginPage() {
         HR: '/employee/dashboard', // HR users go to employee dashboard
         'Team Lead': '/employee/dashboard', // Team Lead users go to employee dashboard
         'Business Development': '/employee/dashboard', // Business Development users go to employee dashboard
+        BDE: '/employee/dashboard', // BDE users go to employee dashboard
         'Sub-Admin': '/employee/dashboard', // Sub-Admin users go to employee dashboard
       };
+
+      console.log('Login - Role mapping:', {
+        originalRole: role,
+        normalizedRole,
+        redirectPath: redirectByRole[normalizedRole],
+        userId
+      });
 
       toast({
         title: 'Login Successful',
@@ -141,11 +153,11 @@ export default function LoginPage() {
       // Set session cookie for middleware
       try {
         const idToken = await credential.user.getIdToken()
-        await fetch('/api/auth/setSession', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, role }) })
+        await fetch('/api/auth/setSession', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, role: normalizedRole }) })
       } catch (e) {
-        // ignore
+        console.error('Failed to set session:', e)
       }
-      router.push(redirectByRole[role]);
+      router.push(redirectByRole[normalizedRole]);
     } catch (error: any) {
       let errorMessage = "Invalid credentials. Please check your email and password.";
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {

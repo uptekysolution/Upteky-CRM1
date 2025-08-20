@@ -97,6 +97,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      // Clear session cookies
+      await fetch('/api/auth/clearSession', { method: 'POST' });
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
       router.push('/login');
     } catch (error) {
