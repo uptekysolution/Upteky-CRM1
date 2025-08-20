@@ -9,11 +9,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MoreHorizontal, Calendar, User, Clock, Edit, Trash2, Eye } from 'lucide-react';
+import { MoreHorizontal, Calendar, User, Clock, Edit, Trash2, Eye, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Task, TaskStatus, TaskPriority } from '@/types/task';
 import { TaskService } from '@/lib/task-service';
 import { useToast } from '@/hooks/use-toast';
+import { auth } from '@/lib/firebase';
 
 interface TaskCardProps {
   task: Task;
@@ -35,6 +36,7 @@ export function TaskCard({
   const { toast } = useToast();
   const [showDetails, setShowDetails] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [currentUser] = useState(auth.currentUser);
 
   const getPriorityVariant = (priority: TaskPriority) => {
     switch (priority) {
@@ -108,6 +110,8 @@ export function TaskCard({
   };
 
   const isOverdue = new Date(task.deadline) < new Date() && task.status !== TaskStatus.COMPLETED;
+  const isAssignedToCurrentUser = currentUser && task.assigneeId === currentUser.uid;
+  const canEdit = isAdmin || isAssignedToCurrentUser;
 
   return (
     <>
@@ -134,20 +138,20 @@ export function TaskCard({
                   <Eye className="mr-2 h-4 w-4" />
                   View Details
                 </DropdownMenuItem>
+                {canEdit && (
+                  <DropdownMenuItem onClick={() => onEdit(task)}>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                )}
                 {isAdmin && (
-                  <>
-                    <DropdownMenuItem onClick={() => onEdit(task)}>
-                      <Edit className="mr-2 h-4 w-4" />
-                      Edit
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      onClick={() => onDelete(task.id)}
-                      className="text-red-600"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem 
+                    onClick={() => onDelete(task.id)}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -179,38 +183,61 @@ export function TaskCard({
             <Progress value={task.progress} className="h-2" />
           </div>
 
-          {isAdmin && (
+          {/* Task Management Controls - Show for assigned user or admin */}
+          {canEdit && (
             <div className="mt-3 pt-3 border-t border-muted">
-              <div className="flex gap-2">
-                <Select
-                  value={task.status}
-                  onValueChange={(value) => handleStatusChange(value as TaskStatus)}
-                  disabled={isUpdating}
-                >
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.values(TaskStatus).map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {status}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                <div className="flex items-center gap-1">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={task.progress}
-                    onChange={(e) => handleProgressChange(parseInt(e.target.value))}
+              <div className="space-y-2">
+                {/* Status Update */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Status:</span>
+                  <Select
+                    value={task.status}
+                    onValueChange={(value) => handleStatusChange(value as TaskStatus)}
                     disabled={isUpdating}
-                    className="w-20 h-2"
-                  />
-                  <span className="text-xs text-muted-foreground">{task.progress}%</span>
+                  >
+                    <SelectTrigger className="h-7 text-xs flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(TaskStatus).map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {status}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+                
+                {/* Progress Update */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Progress:</span>
+                  <div className="flex items-center gap-1 flex-1">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={task.progress}
+                      onChange={(e) => handleProgressChange(parseInt(e.target.value))}
+                      disabled={isUpdating}
+                      className="flex-1 h-2"
+                    />
+                    <span className="text-xs text-muted-foreground min-w-[3rem]">{task.progress}%</span>
+                  </div>
+                </div>
+
+                {/* Quick Complete Button */}
+                {task.status !== TaskStatus.COMPLETED && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleStatusChange(TaskStatus.COMPLETED)}
+                    disabled={isUpdating}
+                    className="w-full text-xs"
+                  >
+                    <CheckCircle className="mr-1 h-3 w-3" />
+                    Mark Complete
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -294,6 +321,61 @@ export function TaskCard({
                       {tag}
                     </Badge>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Task Management in Details */}
+            {canEdit && (
+              <div className="pt-4 border-t border-muted">
+                <h4 className="font-medium mb-3">Update Task</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Status:</span>
+                    <Select
+                      value={task.status}
+                      onValueChange={(value) => handleStatusChange(value as TaskStatus)}
+                      disabled={isUpdating}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.values(TaskStatus).map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Progress:</span>
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={task.progress}
+                        onChange={(e) => handleProgressChange(parseInt(e.target.value))}
+                        disabled={isUpdating}
+                        className="flex-1"
+                      />
+                      <span className="text-sm font-medium min-w-[3rem]">{task.progress}%</span>
+                    </div>
+                  </div>
+
+                  {task.status !== TaskStatus.COMPLETED && (
+                    <Button
+                      onClick={() => handleStatusChange(TaskStatus.COMPLETED)}
+                      disabled={isUpdating}
+                      className="w-full"
+                    >
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      Mark as Complete
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

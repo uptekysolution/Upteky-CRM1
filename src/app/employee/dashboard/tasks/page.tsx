@@ -19,11 +19,8 @@ import { TaskCalendar } from '@/components/tasks/task-calendar';
 import { TaskFilters as TaskFiltersComponent } from '@/components/tasks/task-filters';
 import { FloatingActionButton } from '@/components/tasks/floating-action-button';
 import { useToast } from '@/hooks/use-toast';
-
-// Mock current user - in real app, this would come from auth context
-const CURRENT_USER_ID = 'current-employee-id';
-const CURRENT_USER_NAME = 'John Doe';
-const CURRENT_USER_EMAIL = 'john.doe@company.com';
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function EmployeeTasksPage() {
   const { toast } = useToast();
@@ -33,6 +30,7 @@ export default function EmployeeTasksPage() {
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('tasks');
+  const [currentUser, setCurrentUser] = useState<{ uid: string; name: string; email: string } | null>(null);
   
   // Modal states
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -45,10 +43,48 @@ export default function EmployeeTasksPage() {
   const [taskFilters, setTaskFilters] = useState<TaskFilters>({});
   const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
 
-  // Load initial data
+  // Listen for auth state changes
   useEffect(() => {
-    loadInitialData();
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          // Get user details from Firestore
+          const userDoc = await UserService.getUserById(user.uid);
+          if (userDoc) {
+            setCurrentUser({
+              uid: user.uid,
+              name: userDoc.name || userDoc.firstName + ' ' + userDoc.lastName || 'Unknown User',
+              email: user.email || ''
+            });
+          } else {
+            setCurrentUser({
+              uid: user.uid,
+              name: user.displayName || 'Unknown User',
+              email: user.email || ''
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching user details:', error);
+          setCurrentUser({
+            uid: user.uid,
+            name: user.displayName || 'Unknown User',
+            email: user.email || ''
+          });
+        }
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
+
+  // Load initial data when user is authenticated
+  useEffect(() => {
+    if (currentUser?.uid) {
+      loadInitialData();
+    }
+  }, [currentUser?.uid]);
 
   // Apply filters when tasks or filters change
   useEffect(() => {
@@ -56,9 +92,11 @@ export default function EmployeeTasksPage() {
   }, [tasks, taskFilters]);
 
   const loadInitialData = async () => {
+    if (!currentUser?.uid) return;
+    
     try {
       setIsLoading(true);
-      console.log('EmployeeTasksPage - Loading initial data...');
+      console.log('EmployeeTasksPage - Loading initial data for user:', currentUser.uid);
       
       // Load employees and users for modals
       const [employeesData, usersData] = await Promise.all([
@@ -73,11 +111,13 @@ export default function EmployeeTasksPage() {
       setUsers(usersData);
       
       // Set up real-time listeners for employee's tasks and meetings
-      const unsubscribeTasks = TaskService.subscribeToTasksByAssignee(CURRENT_USER_ID, (tasksData) => {
+      const unsubscribeTasks = TaskService.subscribeToTasksByAssignee(currentUser.uid, (tasksData) => {
+        console.log('Tasks updated:', tasksData);
         setTasks(tasksData);
       });
       
-      const unsubscribeMeetings = MeetingService.subscribeToMeetingsByParticipant(CURRENT_USER_ID, (meetingsData) => {
+      const unsubscribeMeetings = MeetingService.subscribeToMeetingsByParticipant(currentUser.uid, (meetingsData) => {
+        console.log('Meetings updated:', meetingsData);
         setMeetings(meetingsData);
       });
       
@@ -207,22 +247,55 @@ export default function EmployeeTasksPage() {
     }
   };
 
-  const handleTaskStatusChange = (taskId: string, status: TaskStatus) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, status } : task
-    ));
+  const handleTaskStatusChange = async (taskId: string, status: TaskStatus) => {
+    try {
+      await TaskService.updateTaskStatus(taskId, status);
+      // Real-time listener will update the UI automatically
+      toast({
+        title: "Status Updated",
+        description: `Task status changed to ${status}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update task status",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleTaskProgressChange = (taskId: string, progress: number) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, progress } : task
-    ));
+  const handleTaskProgressChange = async (taskId: string, progress: number) => {
+    try {
+      await TaskService.updateTaskProgress(taskId, progress);
+      // Real-time listener will update the UI automatically
+      toast({
+        title: "Progress Updated",
+        description: `Task progress updated to ${progress}%`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update task progress",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleMeetingStatusChange = (meetingId: string, status: MeetingStatus) => {
-    setMeetings(prev => prev.map(meeting => 
-      meeting.id === meetingId ? { ...meeting, status } : meeting
-    ));
+  const handleMeetingStatusChange = async (meetingId: string, status: MeetingStatus) => {
+    try {
+      await MeetingService.updateMeetingStatus(meetingId, status);
+      // Real-time listener will update the UI automatically
+      toast({
+        title: "Meeting Status Updated",
+        description: `Meeting status changed to ${status}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update meeting status",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCalendarEventClick = (event: any) => {
@@ -275,6 +348,18 @@ export default function EmployeeTasksPage() {
   const taskStats = getTaskStats();
   const meetingStats = getMeetingStats();
 
+  // Show loading state while checking authentication
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -293,6 +378,7 @@ export default function EmployeeTasksPage() {
         <div>
           <h1 className="text-3xl font-bold">My Tasks & Meetings</h1>
           <p className="text-muted-foreground">Manage your assigned tasks and scheduled meetings.</p>
+          <p className="text-sm text-muted-foreground">Welcome, {currentUser.name}</p>
         </div>
       </div>
 
