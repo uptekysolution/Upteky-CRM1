@@ -13,17 +13,8 @@ import { TimesheetService } from '@/lib/timesheet-service';
 import { UserService } from '@/lib/user-service';
 import { TimesheetWeekGrid } from '@/components/timesheet/timesheet-week-grid';
 import { useToast } from '@/hooks/use-toast';
-
-// Mock current user - in real app, this would come from auth context
-const currentUser: User = {
-  id: 'emp-1',
-  email: 'john.doe@company.com',
-  name: 'John Doe',
-  role: 'employee',
-  department: 'Engineering',
-  position: 'Software Developer',
-  isActive: true
-};
+import { auth } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function EmployeeTimesheetPage() {
   const { toast } = useToast();
@@ -32,28 +23,70 @@ export default function EmployeeTimesheetPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentTimesheet, setCurrentTimesheet] = useState<Timesheet | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ uid: string; name: string; email: string } | null>(null);
 
   const { weekStart, weekEnd } = TimesheetService.getWeekDates(currentWeek);
 
+  // Listen for auth state changes
   useEffect(() => {
-    loadData();
-    const unsubscribe = TimesheetService.subscribeToEmployeeTimesheets(
-      currentUser.id,
-      (timesheets) => {
-        setTimesheets(timesheets);
-        const current = timesheets.find(t => 
-          t.weekStartDate.getTime() === weekStart.getTime()
-        );
-        setCurrentTimesheet(current || null);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          // Get user details from Firestore
+          const userDoc = await UserService.getUserById(user.uid);
+          if (userDoc) {
+            setCurrentUser({
+              uid: user.uid,
+              name: userDoc.name || userDoc.firstName + ' ' + userDoc.lastName || 'Unknown User',
+              email: user.email || ''
+            });
+          } else {
+            setCurrentUser({
+              uid: user.uid,
+              name: user.displayName || 'Unknown User',
+              email: user.email || ''
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching user details:', error);
+          setCurrentUser({
+            uid: user.uid,
+            name: user.displayName || 'Unknown User',
+            email: user.email || ''
+          });
+        }
+      } else {
+        setCurrentUser(null);
       }
-    );
+    });
 
     return () => unsubscribe();
-  }, [currentWeek]);
+  }, []);
+
+  // Load data when user is authenticated
+  useEffect(() => {
+    if (currentUser?.uid) {
+      loadData();
+      const unsubscribe = TimesheetService.subscribeToEmployeeTimesheets(
+        currentUser.uid,
+        (timesheets) => {
+          setTimesheets(timesheets);
+          const current = timesheets.find(t => 
+            t.weekStartDate.getTime() === weekStart.getTime()
+          );
+          setCurrentTimesheet(current || null);
+        }
+      );
+
+      return () => unsubscribe();
+    }
+  }, [currentUser?.uid, currentWeek]);
 
   const loadData = async () => {
+    if (!currentUser?.uid) return;
+    
     try {
-    setLoading(true);
+      setLoading(true);
       const projectsData = await TimesheetService.getProjects();
       setProjects(projectsData);
     } catch (error) {
@@ -81,10 +114,19 @@ export default function EmployeeTimesheetPage() {
   };
 
   const handleAddEntry = (entry: any) => {
+    if (!currentUser?.uid) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to add time entries.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!currentTimesheet) {
       // Create new timesheet for current week
       const newTimesheet: Omit<Timesheet, 'id' | 'createdAt' | 'updatedAt'> = {
-        employeeId: currentUser.id,
+        employeeId: currentUser.uid,
         employeeName: currentUser.name,
         employeeEmail: currentUser.email,
         weekStartDate: weekStart,
@@ -120,7 +162,7 @@ export default function EmployeeTimesheetPage() {
           description: "Time entry has been added successfully.",
         });
       }).catch((error) => {
-      toast({
+        toast({
           title: "Error",
           description: "Failed to add time entry.",
           variant: "destructive",
@@ -207,6 +249,18 @@ export default function EmployeeTimesheetPage() {
                    currentTimesheet.status === TimesheetStatus.DRAFT && 
                    currentTimesheet.entries.length > 0;
 
+  // Show loading state while checking authentication
+  if (!currentUser) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -221,11 +275,12 @@ export default function EmployeeTimesheetPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
+      <div className="flex items-center justify-between">
+        <div>
           <h1 className="text-3xl font-bold">My Timesheet</h1>
           <p className="text-muted-foreground">Log your work hours and track your time</p>
-          </div>
+          <p className="text-sm text-muted-foreground">Welcome, {currentUser.name}</p>
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={handlePreviousWeek}>
             <ChevronLeft className="h-4 w-4" />
@@ -265,8 +320,8 @@ export default function EmployeeTimesheetPage() {
               )}
             </div>
           </CardTitle>
-      </CardHeader>
-      <CardContent>
+        </CardHeader>
+        <CardContent>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="text-center p-4 border rounded-lg">
               <div className="text-2xl font-bold text-primary">
@@ -326,7 +381,7 @@ export default function EmployeeTimesheetPage() {
                 })}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add First Entry
-                        </Button>
+                </Button>
               </CardContent>
             </Card>
           )}
@@ -358,7 +413,7 @@ export default function EmployeeTimesheetPage() {
                         <div className="text-right">
                           <div className="font-medium">{timesheet.totalHours.toFixed(1)}h</div>
                           <div className="text-sm text-muted-foreground">Total</div>
-        </div>
+                        </div>
                         <Badge variant={
                           timesheet.status === TimesheetStatus.DRAFT ? 'secondary' :
                           timesheet.status === TimesheetStatus.SUBMITTED ? 'default' :
@@ -366,13 +421,13 @@ export default function EmployeeTimesheetPage() {
                         }>
                           {timesheet.status}
                         </Badge>
-            </div>
-            </div>
+                      </div>
+                    </div>
                   ))}
-        </div>
-      )}
+                </div>
+              )}
             </CardContent>
-    </Card>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
