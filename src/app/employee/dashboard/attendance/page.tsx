@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckInOut } from "@/components/attendance/CheckInOut"
@@ -10,12 +10,61 @@ import { LeaveRequestForm } from "@/components/attendance/LeaveRequestForm"
 import { LeaveCalendar } from "@/components/ui/leave-calendar"
 import { useLeaveManagement } from "@/hooks/useLeaveManagement"
 import { Clock, Users, BarChart3, FileText } from 'lucide-react'
+import { onAuthStateChanged } from 'firebase/auth'
+import { auth, db } from '@/lib/firebase'
+import { doc, getDoc } from 'firebase/firestore'
 
 export default function EmployeeAttendancePage() {
-    const { submitLeaveRequest } = useLeaveManagement({
-        userRole: "Employee",
-        currentUserId: "employee",
-        currentUserName: "Employee"
+    const [currentUserId, setCurrentUserId] = useState<string>("")
+    const [currentUserName, setCurrentUserName] = useState<string>("")
+    const [currentUserRole, setCurrentUserRole] = useState<string>("Employee")
+    const [currentTeamId, setCurrentTeamId] = useState<string | undefined>(undefined)
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+            if (!user) {
+                setCurrentUserId("")
+                setCurrentUserName("")
+                setCurrentUserRole("Employee")
+                setCurrentTeamId(undefined)
+                return
+            }
+            setCurrentUserId(user.uid)
+            let resolvedName: string | null = user.displayName || null
+            let resolvedRole: string | null = null
+            let resolvedTeamId: string | undefined = undefined
+            try {
+                const snap = await getDoc(doc(db, 'users', user.uid))
+                if (snap.exists()) {
+                    const data = snap.data() as any
+                    resolvedName = data?.name || data?.fullName || resolvedName
+                    resolvedRole = data?.role || null
+                    resolvedTeamId = data?.teamId || undefined
+                }
+            } catch {}
+            if (!resolvedName) {
+                const localPart = user.email?.split('@')[0] ?? 'User'
+                resolvedName = localPart
+                    .split(/[._-]+/)
+                    .filter(Boolean)
+                    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                    .join(' ')
+            }
+            setCurrentUserName(resolvedName)
+            setCurrentUserRole(resolvedRole || 'Employee')
+            setCurrentTeamId(resolvedTeamId)
+        })
+        return () => unsubscribe()
+    }, [])
+
+    const {
+        submitLeaveRequest,
+        isSubmitting,
+        getMonthlyLeaveUsed,
+    } = useLeaveManagement({
+        userRole: currentUserRole,
+        currentUserId: currentUserId,
+        currentUserName: currentUserName
     });
 
     return (
@@ -68,7 +117,12 @@ export default function EmployeeAttendancePage() {
                             <CardHeader>
                                 <CardTitle>Leave Management</CardTitle>
                                 <CardContent className="p-0 pt-4">
-                                    <LeaveRequestForm onSubmit={submitLeaveRequest} />
+                                    <LeaveRequestForm 
+                                        onSubmit={submitLeaveRequest} 
+                                        isLoading={isSubmitting}
+                                        monthlyLeaveUsed={getMonthlyLeaveUsed()}
+                                        maxMonthlyLeave={2}
+                                    />
                                 </CardContent>
                             </CardHeader>
                         </Card>
@@ -90,9 +144,9 @@ export default function EmployeeAttendancePage() {
 
                 <TabsContent value="analytics" className="space-y-4">
                     <AnalyticsDashboard 
-                        userRole=""
-                        userId=""
-                        teamId=""
+                        userRole={currentUserRole}
+                        userId={currentUserId}
+                        teamId={currentTeamId}
                     />
                 </TabsContent>
             </Tabs>
