@@ -2,7 +2,7 @@
 'use client'
 
 import { useEffect, useState, use } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,8 +12,8 @@ import { UserPermissionForm } from "./_components/user-permission-form";
 import { db } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2 } from "lucide-react";
-
+import { Loader2, Save, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 export default function UserEditPage({ params }: { params: Promise<{ userId: string }> }) {
     const { userId } = use(params);
@@ -51,30 +51,33 @@ export default function UserEditPage({ params }: { params: Promise<{ userId: str
         fetchUser();
     }, [userId, toast]);
 
-
     const handleSaveChanges = async () => {
         setSaving(true);
         try {
             // --- Save Profile Data ---
             if (profileData) {
                 const userRef = doc(db, 'users', user.id);
-                // We only update fields that can be changed in the form
-                const { firstName, lastName, role } = profileData as any;
-                await setDoc(userRef, {
-                    ...user, // preserve existing data
-                    firstName,
-                    lastName,
-                    name: `${firstName} ${lastName}`,
-                    role,
-                });
+                const updateData: any = {
+                    firstName: profileData.firstName,
+                    lastName: profileData.lastName,
+                    name: `${profileData.firstName} ${profileData.lastName}`,
+                    role: profileData.role,
+                    status: profileData.status,
+                };
+
+                // Add optional fields if they exist
+                if (profileData.phone) updateData.phone = profileData.phone;
+                if (profileData.department) updateData.department = profileData.department;
+                if (profileData.position) updateData.position = profileData.position;
+                if (profileData.hireDate) updateData.hireDate = profileData.hireDate;
+                if (profileData.location) updateData.location = profileData.location;
+                if (profileData.bio) updateData.bio = profileData.bio;
+
+                await updateDoc(userRef, updateData);
             }
 
-            // --- Save Team Data ---
-            if (teamData) {
-                // This is more complex in reality. You'd likely delete all existing
-                // team memberships for this user and add the new ones in a batch write.
-                console.log("Saving Team Data (not implemented):", teamData);
-            }
+            // --- Team Data is handled by the UserTeamForm component ---
+            // It saves directly to the database when the user clicks "Save Changes"
 
             // --- Save Permission Overrides ---
             // if (permissionData) {
@@ -82,11 +85,18 @@ export default function UserEditPage({ params }: { params: Promise<{ userId: str
             //     await setDoc(permissionRef, { overrides: permissionData });
             // }
 
-            toast({ title: "Changes Saved", description: "User data has been updated successfully." });
+            toast({ 
+                title: "Changes Saved", 
+                description: "User data has been updated successfully." 
+            });
 
         } catch (error) {
             console.error("Failed to save changes:", error);
-            toast({ variant: 'destructive', title: "Save Failed", description: "Could not save changes to the database." });
+            toast({ 
+                variant: 'destructive', 
+                title: "Save Failed", 
+                description: "Could not save changes to the database." 
+            });
         } finally {
             setSaving(false);
         }
@@ -118,7 +128,6 @@ export default function UserEditPage({ params }: { params: Promise<{ userId: str
         )
     }
 
-
     if (!user) {
         return (
             <Card>
@@ -127,6 +136,12 @@ export default function UserEditPage({ params }: { params: Promise<{ userId: str
                 </CardHeader>
                 <CardContent>
                     <p>The requested user could not be found.</p>
+                    <Button asChild className="mt-4">
+                        <Link href="/admin/dashboard/user-management">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back to User Management
+                        </Link>
+                    </Button>
                 </CardContent>
             </Card>
         )
@@ -139,20 +154,29 @@ export default function UserEditPage({ params }: { params: Promise<{ userId: str
                     <h1 className="text-2xl font-bold">Edit User: {user.name}</h1>
                     <p className="text-muted-foreground">Manage user profile, team assignments, and permissions.</p>
                 </div>
-                <Button onClick={handleSaveChanges} disabled={saving}>
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Save Changes
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" asChild>
+                        <Link href="/admin/dashboard/user-management">
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back
+                        </Link>
+                    </Button>
+                    <Button onClick={handleSaveChanges} disabled={saving}>
+                        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <Save className="mr-2 h-4 w-4" />
+                        Save Changes
+                    </Button>
+                </div>
             </div>
             <Tabs defaultValue="profile" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="profile">Profile</TabsTrigger>
                     <TabsTrigger value="teams">Team Assignments</TabsTrigger>
                 </TabsList>
-                <TabsContent value="profile">
+                <TabsContent value="profile" className="space-y-4">
                     <UserProfileForm user={user} onFormChange={setProfileData} />
                 </TabsContent>
-                <TabsContent value="teams">
+                <TabsContent value="teams" className="space-y-4">
                     <UserTeamForm userId={user.id} onFormChange={setTeamData} />
                 </TabsContent>
                 {/* <TabsContent value="permissions">
