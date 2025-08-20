@@ -216,7 +216,7 @@ export default function LoginPage() {
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input placeholder="name@upteky.com" {...field} />
+                      <Input placeholder="Enter your registered email" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -229,7 +229,7 @@ export default function LoginPage() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <Input type="password" placeholder="Enter your password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
