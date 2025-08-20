@@ -1,16 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -18,47 +17,57 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { CalendarCheck2, CheckSquare, Clock, Users, Target } from "lucide-react"
-import { DashboardChart } from "./dashboard-chart"
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { CalendarCheck2, CheckSquare, Target } from "lucide-react";
+import { TaskService } from "@/lib/task-service";
+import { fetchAttendanceRecords, AttendanceRecord } from "@/lib/analytics";
+import { format, parse } from "date-fns";
 
-// This is a simplified mock. In a real app, this logic would be in the layout
-// and passed down through context or a state manager.
-const mockPermissions = {
-  Admin: { 'users:manage': true, 'attendance:view:all': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': true, 'lead-generation:view': true },
-  HR: { 'users:manage': true, 'attendance:view:all': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': false, 'lead-generation:view': false },
-  'Team Lead': { 'users:manage': false, 'attendance:view:team': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:team': true, 'lead-generation:view': true },
-  Employee: { 'users:manage': false, 'attendance:view:own': true, 'tasks:view': true, 'timesheet:view': true, 'crm:view:all': false, 'lead-generation:view': false },
-  'Business Development': { 'users:manage': false, 'attendance:view:all': false, 'tasks:view': false, 'timesheet:view': false, 'crm:view:own': true, 'lead-generation:view': true }
+type MinimalTask = {
+  id: string;
+  title: string;
+  status: string;
+  deadline?: Date;
+  updatedAt?: Date;
+  priority?: string;
 };
-
-
-// Mock user object. Role remains mocked for demo; name will be resolved dynamically.
-const currentUser = {
-    name: "",
-    role: "HR", // Possible roles: 'Admin', 'HR', 'Team Lead', 'Employee', 'Business Development'
-};
-
-const userPermissions = (mockPermissions as any)[currentUser.role] || {};
 
 export default function Dashboard() {
   const [userName, setUserName] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>("");
+  const [teamId, setTeamId] = useState<string | undefined>(undefined);
+
+  const [tasks, setTasks] = useState<MinimalTask[]>([]);
+  const [tasksLoading, setTasksLoading] = useState<boolean>(true);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState<boolean>(true);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setUserName("");
+        setUserId("");
+        setUserRole("");
+        setTeamId(undefined);
         return;
       }
 
       let resolvedName: string | null = user.displayName || null;
+      let resolvedRole: string | null = null;
+      let resolvedTeamId: string | undefined = undefined;
 
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         if (snap.exists()) {
           const data = snap.data() as any;
           resolvedName = data?.name || data?.fullName || resolvedName;
+          resolvedRole = data?.role || null;
+          resolvedTeamId = data?.teamId || undefined;
         }
       } catch {
         // ignore and fallback
@@ -74,165 +83,228 @@ export default function Dashboard() {
       }
 
       setUserName(resolvedName);
+      setUserId(user.uid);
+      setUserRole(resolvedRole || "Employee");
+      setTeamId(resolvedTeamId);
     });
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!userId) return;
+      setTasksLoading(true);
+      setTasksError(null);
+      try {
+        const res = await TaskService.getTasksByAssignee(userId);
+        const mapped: MinimalTask[] = res.map((t: any) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          deadline: t.deadline ? new Date(t.deadline) : (t.deadline as Date | undefined),
+          updatedAt: t.updatedAt ? new Date(t.updatedAt) : (t.updatedAt as Date | undefined),
+          priority: t.priority,
+        }));
+        setTasks(mapped);
+      } catch (e: any) {
+        setTasksError("Failed to load tasks");
+      } finally {
+        setTasksLoading(false);
+      }
+    };
+    void load();
+  }, [userId]);
+
+  useEffect(() => {
+    const loadAttendance = async () => {
+      if (!userId || !userRole) return;
+      setAttendanceLoading(true);
+      setAttendanceError(null);
+      try {
+        const records = await fetchAttendanceRecords(userRole, userId, teamId);
+        setAttendance(records);
+      } catch (e: any) {
+        setAttendanceError("Failed to load attendance");
+      } finally {
+        setAttendanceLoading(false);
+      }
+    };
+    void loadAttendance();
+  }, [userId, userRole, teamId]);
+
+  const now = new Date();
+  const currentMonth = format(now, "yyyy-MM");
+
+  const taskMetrics = useMemo(() => {
+    const open = tasks.filter((t) => !["Completed", "Cancelled"].includes(String(t.status)));
+    const overdue = open.filter((t) => t.deadline && t.deadline.getTime() < Date.now());
+    const completedThisMonth = tasks.filter((t) => String(t.status) === "Completed" && t.updatedAt && format(t.updatedAt, "yyyy-MM") === currentMonth);
+    const inMonth = tasks.filter((t) => (t.updatedAt && format(t.updatedAt, "yyyy-MM") === currentMonth) || (t.deadline && format(t.deadline, "yyyy-MM") === currentMonth));
+    const completionRate = inMonth.length > 0 ? Math.round((completedThisMonth.length / inMonth.length) * 100) : 0;
+    const onTime = completedThisMonth.filter((t) => t.deadline && t.updatedAt && t.updatedAt.getTime() <= t.deadline.getTime());
+    const onTimeRate = completedThisMonth.length > 0 ? Math.round((onTime.length / completedThisMonth.length) * 100) : 0;
+    return { openCount: open.length, overdueCount: overdue.length, completedThisMonth: completedThisMonth.length, completionRate, onTimeRate };
+  }, [tasks, currentMonth]);
+
+  const attendanceMetrics = useMemo(() => {
+    if (!attendance || attendance.length === 0) {
+      // If there are no attendance records at all, treat today as Absent for clarity
+      return { rate30: 0, todayStatus: "Absent" } as { rate30: number; todayStatus: string };
+    }
+    const todayStr = format(now, "yyyy-MM-dd");
+    const last30Cutoff = new Date(now);
+    last30Cutoff.setDate(now.getDate() - 30);
+
+    const recordsLast30 = attendance.filter((r) => {
+      const d = parse(r.date, "yyyy-MM-dd", new Date());
+      return d >= last30Cutoff && d <= now;
+    });
+    const presentOrRemote = recordsLast30.filter((r) => r.status === "Present" || r.status === "Remote");
+    const rate30 = recordsLast30.length > 0 ? Math.round((presentOrRemote.length / recordsLast30.length) * 100) : 0;
+    const today = attendance.find((r) => r.date === todayStr);
+    const todayStatus = today ? today.status : "Absent";
+    return { rate30, todayStatus };
+  }, [attendance]);
+
+  const recentTasks = useMemo(() => {
+    return [...tasks]
+      .sort((a, b) => (a.deadline?.getTime() || 0) - (b.deadline?.getTime() || 0))
+      .slice(0, 5);
+  }, [tasks]);
+
   return (
     <>
       <div className="mb-4">
         <h1 className="text-3xl font-bold">Welcome back, {userName || "User"}!</h1>
-        <p className="text-muted-foreground">Here's a summary of your workspace.</p>
+        <p className="text-muted-foreground">Your personalized performance, tasks, and attendance summary.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
-        {userPermissions['users:manage'] && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Active Users
-              </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">1,257</div>
-              <p className="text-xs text-muted-foreground">
-                +20.1% from last month
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        {(userPermissions['attendance:view:all'] || userPermissions['attendance:view:team'] || userPermissions['attendance:view:own']) && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Attendance Today
-              </CardTitle>
-              <CalendarCheck2 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">92%</div>
-              <p className="text-xs text-muted-foreground">
-                -1.2% from yesterday
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        {userPermissions['tasks:view'] && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Open Tasks</CardTitle>
-              <CheckSquare className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">84</div>
-              <p className="text-xs text-muted-foreground">
-                +12 since last week
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        {userPermissions['timesheet:view'] && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Pending Approvals
-              </CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">17</div>
-              <p className="text-xs text-muted-foreground">
-                3 timesheets, 14 leave requests
-              </p>
-            </CardContent>
-          </Card>
-        )}
+      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">My Performance</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {tasksLoading ? (
+              <div className="text-xs text-muted-foreground">Loading...</div>
+            ) : tasksError ? (
+              <div className="text-xs text-red-500">{tasksError}</div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-2xl font-bold">{taskMetrics.completionRate}%</div>
+                  <p className="text-xs text-muted-foreground">Completion rate (this month)</p>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{taskMetrics.onTimeRate}%</div>
+                  <p className="text-xs text-muted-foreground">On-time delivery</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">My Tasks</CardTitle>
+            <CheckSquare className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {tasksLoading ? (
+              <div className="text-xs text-muted-foreground">Loading...</div>
+            ) : tasksError ? (
+              <div className="text-xs text-red-500">{tasksError}</div>
+            ) : (
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <div className="text-2xl font-bold">{taskMetrics.openCount}</div>
+                  <p className="text-xs text-muted-foreground">Open</p>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{taskMetrics.overdueCount}</div>
+                  <p className="text-xs text-muted-foreground">Overdue</p>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{taskMetrics.completedThisMonth}</div>
+                  <p className="text-xs text-muted-foreground">Completed (this month)</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Attendance Summary</CardTitle>
+            <CalendarCheck2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {attendanceLoading ? (
+              <div className="text-xs text-muted-foreground">Loading...</div>
+            ) : attendanceError ? (
+              <div className="text-xs text-red-500">{attendanceError}</div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-2xl font-bold">{attendanceMetrics.rate30}%</div>
+                  <p className="text-xs text-muted-foreground">Attendance (last 30 days)</p>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{attendanceMetrics.todayStatus}</div>
+                  <p className="text-xs text-muted-foreground">Today</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
-      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
-        {(userPermissions['crm:view:all'] || userPermissions['crm:view:team'] || userPermissions['crm:view:own']) && (
-          <Card className="xl:col-span-2">
-            <CardHeader>
-              <CardTitle>Recent Leads</CardTitle>
-              <CardDescription>
-                A summary of the most recent leads generated this month.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+
+      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3 mt-4">
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <CardTitle>My Upcoming Tasks</CardTitle>
+            <CardDescription>Next 5 tasks assigned to you by deadline.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {tasksLoading ? (
+              <div className="text-sm text-muted-foreground">Loading tasks...</div>
+            ) : tasksError ? (
+              <div className="text-sm text-red-500">{tasksError}</div>
+            ) : recentTasks.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No tasks found.</div>
+            ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Customer</TableHead>
-                    <TableHead className="hidden sm:table-cell">
-                      Source
-                    </TableHead>
-                    <TableHead className="hidden sm:table-cell">
-                      Status
-                    </TableHead>
-                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead>Title</TableHead>
+                    <TableHead className="hidden sm:table-cell">Status</TableHead>
+                    <TableHead className="hidden sm:table-cell">Priority</TableHead>
+                    <TableHead className="text-right">Deadline</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Liam Johnson</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        liam@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Webinar
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="outline">
-                        Contacted
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$2,500.00</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Olivia Smith</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        olivia@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Referral
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="secondary">
-                        New
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$1,500.00</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>
-                      <div className="font-medium">Noah Williams</div>
-                      <div className="hidden text-sm text-muted-foreground md:inline">
-                        noah@example.com
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      Website
-                    </TableCell>
-                     <TableCell className="hidden sm:table-cell">
-                      <Badge className="text-xs" variant="outline">
-                        Contacted
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">$3,000.00</TableCell>
-                  </TableRow>
+                  {recentTasks.map((t) => (
+                    <TableRow key={t.id}>
+                      <TableCell>
+                        <div className="font-medium">{t.title}</div>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge className="text-xs" variant="outline">{t.status}</Badge>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge className="text-xs" variant="secondary">{t.priority || "-"}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{t.deadline ? format(t.deadline, "dd MMM yyyy") : "-"}</TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
-            </CardContent>
-          </Card>
-        )}
-        {userPermissions['lead-generation:view'] && (
-            <DashboardChart />
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
     </>
-  )
+  );
 }

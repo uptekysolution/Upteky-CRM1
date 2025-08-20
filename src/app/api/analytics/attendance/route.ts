@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/firebase-admin'
 import { auth } from '@/lib/firebase-admin'
+import { format } from 'date-fns'
 
 // Helper: get role-based filter
 async function getAttendanceFilter(userId: string, userRole: string, teamId?: string) {
@@ -83,7 +84,31 @@ export async function GET(req: NextRequest) {
     if (userRole === 'Admin' || userRole === 'Sub-Admin') {
       // Can see all records, but can filter by specific user/team
       if (targetUserId) {
-        query = query.where('userId', '==', targetUserId)
+        // Try matching either `userId` or `uid`
+        const primary = await db.collection('attendance').where('userId', '==', targetUserId)
+        const fallback = await db.collection('attendance').where('uid', '==', targetUserId)
+        const [pSnap, fSnap] = await Promise.all([primary.get(), fallback.get()])
+        const combinedDocs = [...pSnap.docs, ...fSnap.docs]
+        const records = combinedDocs.map(doc => {
+          const data = doc.data()
+          const computedDate = typeof data.date === 'string'
+            ? data.date
+            : (data.date?.toDate ? format(data.date.toDate(), 'yyyy-MM-dd')
+              : format((data.createdAt?.toDate?.() || new Date()), 'yyyy-MM-dd'))
+          return {
+            id: doc.id,
+            uid: data.userId || data.uid,
+            role: data.role,
+            date: computedDate,
+            status: data.status,
+            withinGeofence: data.withinGeofence || false,
+            checkIn: data.checkIn,
+            checkOut: data.checkOut,
+            teamId: data.teamId,
+            createdAt: data.createdAt
+          }
+        })
+        return NextResponse.json(records)
       } else if (targetTeamId) {
         query = query.where('teamId', '==', targetTeamId)
       }
@@ -91,7 +116,31 @@ export async function GET(req: NextRequest) {
       // Can see Employee records only
       query = query.where('role', 'in', ['Employee', 'HR', 'Team Lead', 'Business Development'])
       if (targetUserId) {
-        query = query.where('userId', '==', targetUserId)
+        // Try matching either `userId` or `uid`
+        const primary = await db.collection('attendance').where('userId', '==', targetUserId)
+        const fallback = await db.collection('attendance').where('uid', '==', targetUserId)
+        const [pSnap, fSnap] = await Promise.all([primary.get(), fallback.get()])
+        const combinedDocs = [...pSnap.docs, ...fSnap.docs]
+        const records = combinedDocs.map(doc => {
+          const data = doc.data()
+          const computedDate = typeof data.date === 'string'
+            ? data.date
+            : (data.date?.toDate ? format(data.date.toDate(), 'yyyy-MM-dd')
+              : format((data.createdAt?.toDate?.() || new Date()), 'yyyy-MM-dd'))
+          return {
+            id: doc.id,
+            uid: data.userId || data.uid,
+            role: data.role,
+            date: computedDate,
+            status: data.status,
+            withinGeofence: data.withinGeofence || false,
+            checkIn: data.checkIn,
+            checkOut: data.checkOut,
+            teamId: data.teamId,
+            createdAt: data.createdAt
+          }
+        })
+        return NextResponse.json(records)
       }
     } else if (userRole === 'Team Lead') {
       // Can see team members only
@@ -108,18 +157,45 @@ export async function GET(req: NextRequest) {
         }
       }
     } else {
-      // Employee can only see own records
-      query = query.where('userId', '==', userId)
+      // Employee can only see own records — support schemas with `userId` or `uid`
+      const primary = await db.collection('attendance').where('userId', '==', userId)
+      const fallback = await db.collection('attendance').where('uid', '==', userId)
+      const [pSnap, fSnap] = await Promise.all([primary.get(), fallback.get()])
+      const combinedDocs = [...pSnap.docs, ...fSnap.docs]
+      const records = combinedDocs.map(doc => {
+        const data = doc.data()
+        const computedDate = typeof data.date === 'string'
+          ? data.date
+          : (data.date?.toDate ? format(data.date.toDate(), 'yyyy-MM-dd')
+            : format((data.createdAt?.toDate?.() || new Date()), 'yyyy-MM-dd'))
+        return {
+          id: doc.id,
+          uid: data.userId || data.uid,
+          role: data.role,
+          date: computedDate,
+          status: data.status,
+          withinGeofence: data.withinGeofence || false,
+          checkIn: data.checkIn,
+          checkOut: data.checkOut,
+          teamId: data.teamId,
+          createdAt: data.createdAt
+        }
+      })
+      return NextResponse.json(records)
     }
 
     const snapshot = await query.get()
     const records = snapshot.docs.map(doc => {
       const data = doc.data()
+      const computedDate = typeof data.date === 'string'
+        ? data.date
+        : (data.date?.toDate ? format(data.date.toDate(), 'yyyy-MM-dd')
+          : format((data.createdAt?.toDate?.() || new Date()), 'yyyy-MM-dd'))
       return {
         id: doc.id,
         uid: data.userId || data.uid,
         role: data.role,
-        date: data.date,
+        date: computedDate,
         status: data.status,
         withinGeofence: data.withinGeofence || false,
         checkIn: data.checkIn,
