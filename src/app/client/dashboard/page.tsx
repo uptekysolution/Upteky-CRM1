@@ -42,42 +42,11 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { TicketService } from "@/lib/ticket-service";
 import { ChatTicket } from "@/types/chat";
-
-interface Project {
-  id: string;
-  name: string;
-  progress: number;
-  deadline: string;
-  status: string;
-  assignedTeam: string;
-  milestones: Milestone[];
-  documents: Document[];
-}
-
-interface Milestone {
-  id: string;
-  title: string;
-  dueDate: string;
-  completed: boolean;
-  progress: number;
-}
-
-interface Document {
-  id: string;
-  name: string;
-  type: string;
-  uploadedAt: string;
-  uploadedBy: string;
-}
-
-interface Activity {
-  id: string;
-  type: 'project' | 'ticket' | 'document' | 'milestone';
-  action: string;
-  timestamp: string;
-  user: string;
-  details: string;
-}
+import { Project, ProjectService } from "@/lib/project-service";
+import { ActivityLog, ActivityService } from "@/lib/activity-service";
+import { Task } from "@/types/task";
+import { TaskService } from "@/lib/task-service";
+import TasksList from "@/components/ClientDashboard/TasksList";
 
 export default function ClientDashboardPage() {
   const router = useRouter();
@@ -109,86 +78,50 @@ export default function ClientDashboardPage() {
     };
   }, [userProfile?.id]);
   const [tickets, setTickets] = useState<ChatTicket[]>([]);
-  const [projects] = useState<Project[]>([
-    {
-      id: "proj-phoenix",
-      name: "Project Phoenix",
-      progress: 75,
-      deadline: "Aug 22, 2025",
-      status: "Active",
-      assignedTeam: "Team Phoenix",
-      milestones: [
-        { id: "1", title: "Design Phase", dueDate: "Jul 15, 2025", completed: true, progress: 100 },
-        { id: "2", title: "Development Phase", dueDate: "Aug 10, 2025", completed: false, progress: 60 },
-        { id: "3", title: "Testing Phase", dueDate: "Aug 20, 2025", completed: false, progress: 0 }
-      ],
-      documents: [
-        { id: "1", name: "Project Brief.pdf", type: "PDF", uploadedAt: "2 days ago", uploadedBy: "Admin" },
-        { id: "2", name: "Design Mockups.zip", type: "ZIP", uploadedAt: "1 day ago", uploadedBy: "Design Team" }
-      ]
-    },
-    {
-      id: "proj-q3-marketing",
-      name: "Q3 Marketing Campaign",
-      progress: 30,
-      deadline: "Sep 10, 2025",
-      status: "Planning",
-      assignedTeam: "Marketing Team",
-      milestones: [
-        { id: "1", title: "Strategy Planning", dueDate: "Jul 20, 2025", completed: true, progress: 100 },
-        { id: "2", title: "Content Creation", dueDate: "Aug 15, 2025", completed: false, progress: 40 },
-        { id: "3", title: "Campaign Launch", dueDate: "Sep 1, 2025", completed: false, progress: 0 }
-      ],
-      documents: [
-        { id: "1", name: "Marketing Strategy.docx", type: "DOCX", uploadedAt: "3 days ago", uploadedBy: "Marketing Lead" }
-      ]
-    }
-  ]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
-  // Mock activities for now - will be replaced with real data later
-  const [activities] = useState<Activity[]>([
-    {
-      id: "1",
-      type: "ticket",
-      action: "Priority updated",
-      timestamp: "Just now",
-      user: "Admin",
-      details: "Ticket #1001 priority updated to High"
-    },
-    {
-      id: "2",
-      type: "document",
-      action: "File uploaded",
-      timestamp: "1 hour ago",
-      user: "Design Team",
-      details: "File 'brand-guidelines.pdf' uploaded to Project Phoenix"
-    },
-    {
-      id: "3",
-      type: "milestone",
-      action: "Milestone completed",
-      timestamp: "Yesterday",
-      user: "Team Phoenix",
-      details: "Milestone 'Design Phase' marked as completed"
-    },
-    {
-      id: "4",
-      type: "project",
-      action: "Project updated",
-      timestamp: "2 days ago",
-      user: "Admin",
-      details: "Project 'Q3 Marketing Campaign' status changed to Planning"
+  // Real projects
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    const unsubscribe = ProjectService.subscribeToClientProjects(userProfile.id, setProjects);
+    return () => unsubscribe();
+  }, [userProfile?.id]);
+
+  // Real activities
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    const unsubscribe = ActivityService.subscribeToClientActivities(userProfile.id, setActivities);
+    return () => unsubscribe();
+  }, [userProfile?.id]);
+
+  // Real tasks for this client's projects
+  useEffect(() => {
+    if (!userProfile?.id) return;
+    const unsubscribe = TaskService.subscribeToTasksByClient(userProfile.id, setTasks);
+    return () => unsubscribe();
+  }, [userProfile?.id]);
+
+  const displayCompanyName = useMemo(() => {
+    const explicitName = (userProfile?.companyName || '').trim();
+    if (explicitName) return explicitName;
+    const email = userProfile?.email || '';
+    if (email.includes('@')) {
+      const domainPart = email.split('@')[1] || '';
+      const companyPart = (domainPart.split('.')[0] || '').trim();
+      if (companyPart) return companyPart.charAt(0).toUpperCase() + companyPart.slice(1);
     }
-  ]);
+    return 'Client';
+  }, [userProfile?.companyName, userProfile?.email]);
 
   const companyTitle = useMemo(() => {
-    const name = userProfile?.companyName || "Company";
-    return `${name} Dashboard`;
-  }, [userProfile?.companyName]);
+    return `${displayCompanyName} Dashboard`;
+  }, [displayCompanyName]);
 
   // Filter projects based on search
   const filteredProjects = projects.filter(project =>
-    project.name.toLowerCase().includes(projectSearch.toLowerCase())
+    (project.name || '').toLowerCase().includes(projectSearch.toLowerCase())
   );
 
   // Filter tickets based on search and filters
@@ -249,7 +182,7 @@ export default function ClientDashboardPage() {
       {/* Header with Notifications */}
       <div className="flex items-center justify-between">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900">Welcome! {userProfile?.companyName || "Company"}</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Welcome! {displayCompanyName}</h1>
           <p className="text-gray-600 mt-1">This dashboard gives you a quick overview of projects, tickets, and progress so you can stay on track.</p>
         </div>
         
@@ -304,8 +237,9 @@ export default function ClientDashboardPage() {
       <Tabs defaultValue="dashboard" className="w-full">
         <TabsList className="w-full justify-start rounded-2xl bg-gray-50 p-2">
           <TabsTrigger value="dashboard" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Dashboard</TabsTrigger>
-          <TabsTrigger value="projects" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Project Details</TabsTrigger>
+          <TabsTrigger value="projects" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Project Management</TabsTrigger>
           <TabsTrigger value="tickets" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Ticket System</TabsTrigger>
+          <TabsTrigger value="tasks" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Project Tasks</TabsTrigger>
           <TabsTrigger value="activity" className="transition-all duration-200 data-[state=active]:bg-[#F7931E] data-[state=active]:text-white hover:text-orange-500">Activity Log</TabsTrigger>
         </TabsList>
 
@@ -407,42 +341,10 @@ export default function ClientDashboardPage() {
                   {/* Deadline */}
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Calendar className="h-4 w-4" />
-                    <span>Deadline: {project.deadline}</span>
+                    <span>Deadline: {project.deadline?.toDate ? project.deadline.toDate().toLocaleDateString() : 'N/A'}</span>
                   </div>
 
-                  {/* Milestones */}
-                  <div>
-                    <h4 className="font-medium text-sm mb-2">Milestones</h4>
-                    <div className="space-y-2">
-                      {project.milestones.slice(0, 3).map((milestone) => (
-                        <div key={milestone.id} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${milestone.completed ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                            <span className={milestone.completed ? 'line-through text-gray-500' : ''}>
-                              {milestone.title}
-                            </span>
-                          </div>
-                          <span className="text-gray-500">{milestone.dueDate}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Documents */}
-                  <div>
-                    <h4 className="font-medium text-sm mb-2">Shared Documents</h4>
-                    <div className="space-y-1">
-                      {project.documents.slice(0, 2).map((doc) => (
-                        <div key={doc.id} className="flex items-center gap-2 text-sm text-gray-600">
-                          <FileText className="h-4 w-4" />
-                          <span>{doc.name}</span>
-                        </div>
-                      ))}
-                      {project.documents.length > 2 && (
-                        <p className="text-xs text-gray-500">+{project.documents.length - 2} more documents</p>
-                      )}
-                    </div>
-                  </div>
+                  {/* Milestones preview moved to project page to keep this list light */}
 
                   {/* Action Buttons */}
                   <div className="flex gap-2 pt-2">
@@ -605,14 +507,25 @@ export default function ClientDashboardPage() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-medium text-sm">{activity.action}</p>
-                        <span className="text-xs text-gray-500">{activity.timestamp}</span>
+                        <span className="text-xs text-gray-500">{(activity as any).timestamp?.toDate ? (activity as any).timestamp.toDate().toLocaleString() : 'N/A'}</span>
                       </div>
-                      <p className="text-sm text-gray-600">{activity.details}</p>
-                      <p className="text-xs text-gray-500 mt-1">by {activity.user}</p>
+                      <p className="text-sm text-gray-600">{(activity as any).details}</p>
                     </div>
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="tasks" className="mt-4 space-y-6">
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle>Tasks</CardTitle>
+              <CardDescription>Tasks across your projects</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <TasksList tasks={tasks} />
             </CardContent>
           </Card>
         </TabsContent>

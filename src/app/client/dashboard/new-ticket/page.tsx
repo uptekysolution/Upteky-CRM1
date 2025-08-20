@@ -96,7 +96,15 @@ export default function NewTicketPage() {
               </Select>
             </div>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
             <Button onClick={handleCreate} disabled={submitting} className="bg-[#F7931E] hover:bg-[#E6851A]">
               {submitting ? 'Creating...' : 'Create Ticket'}
             </Button>

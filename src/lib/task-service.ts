@@ -75,6 +75,44 @@ export class TaskService {
     }
   }
 
+  // Get tasks linked to a client's projects
+  static async getTasksByClient(clientId: string): Promise<Task[]> {
+    try {
+      // 1) Load all project ids for this client
+      const projectsQuery = query(collection(db, 'projects'), where('clientId', '==', clientId));
+      const projectsSnap = await getDocs(projectsQuery);
+      const projectIds = projectsSnap.docs.map((d) => d.id);
+
+      if (projectIds.length === 0) {
+        return [];
+      }
+
+      // 2) Query tasks by projectId using batched `in` queries (max 10 ids per query)
+      const chunkSize = 10;
+      const tasks: Task[] = [];
+      for (let i = 0; i < projectIds.length; i += chunkSize) {
+        const idsChunk = projectIds.slice(i, i + chunkSize);
+        const qTasks = query(collection(db, TASKS_COLLECTION), where('projectId', 'in', idsChunk));
+        const snap = await getDocs(qTasks);
+        const partial = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          deadline: d.data().deadline?.toDate() || new Date(),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+          updatedAt: d.data().updatedAt?.toDate() || new Date(),
+        })) as Task[];
+        tasks.push(...partial);
+      }
+
+      // 3) Sort by deadline locally (avoids composite index requirements)
+      tasks.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
+      return tasks;
+    } catch (error) {
+      console.error('Error getting tasks by client:', error);
+      throw new Error('Failed to get client tasks');
+    }
+  }
+
   // Get filtered tasks
   static async getFilteredTasks(filters: TaskFilters): Promise<Task[]> {
     try {
@@ -235,5 +273,23 @@ export class TaskService {
       })) as Task[];
       callback(tasks);
     });
+  }
+
+  // Real-time listener for tasks belonging to a client's projects
+  static subscribeToTasksByClient(clientId: string, callback: (tasks: Task[]) => void) {
+    // Fallback to polling via non-realtime API for simplicity; could be optimized by composite indexes
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const results = await TaskService.getTasksByClient(clientId);
+        if (!cancelled) callback(results);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (!cancelled) setTimeout(poll, 10000);
+      }
+    };
+    void poll();
+    return () => { cancelled = true; };
   }
 }

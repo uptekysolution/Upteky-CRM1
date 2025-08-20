@@ -33,3 +33,5 @@ if (!getApps().length) {
 
 export const auth = getAuth();
 export const adminDb = getFirestore();
+// Back-compat alias for modules importing { db } from this file
+export const db = adminDb;

@@ -27,6 +27,7 @@ import { Logo } from '@/components/logo';
 import { Loader2 } from 'lucide-react';
 import { auth, db, app } from '@/lib/firebase';
 import LogoImage from '@/components/LogoImage';
+import { UserService as UsersService } from '@/lib/services/userService';
 
 const loginSchema = z.object({
   email: z
@@ -62,6 +63,9 @@ export default function LoginPage() {
       if (!userId) {
         throw new Error('No user ID returned from authentication.');
       }
+
+      // Ensure Firestore user doc exists/migrated to UID
+      await UsersService.ensureUserDocForAuthUser(credential.user);
 
       // Fetch role: try Firestore first, then fall back to Realtime Database
       let role: string | undefined;

@@ -79,6 +79,96 @@ service cloud.firestore {
       }
     }
 
+    // Projects collection with per-client access controls
+    match /projects/{projectId} {
+      allow read: if isSignedIn() && (
+        resource.data.clientId == request.auth.uid || isAdmin()
+      );
+
+      allow create: if isSignedIn() && (
+        request.resource.data.clientId == request.auth.uid || isAdmin()
+      ) && request.resource.data.name is string;
+
+      // Clients may not arbitrarily change ownership fields
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.clientId == request.auth.uid &&
+          request.resource.data.clientId == resource.data.clientId
+        )
+      );
+
+      allow delete: if isSignedIn() && isAdmin();
+
+      // Milestones subcollection
+      match /milestones/{milestoneId} {
+        allow read: if isSignedIn() && (
+          get(/databases/$(database)/documents/projects/$(projectId)).data.clientId == request.auth.uid || isAdmin()
+        );
+        allow create, update: if isSignedIn() && (
+          isAdmin() || get(/databases/$(database)/documents/projects/$(projectId)).data.clientId == request.auth.uid
+        );
+        allow delete: if isSignedIn() && isAdmin();
+      }
+    }
+
+    // Tasks collection: scoped to client via projectId->project.clientId
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && (
+        isAdmin() || (
+          // If task has projectId, validate client ownership
+          resource.data.projectId is string &&
+          get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.clientId == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          request.resource.data.projectId is string &&
+          get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.clientId == request.auth.uid
+        )
+      );
+
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.projectId is string &&
+          get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.clientId == request.auth.uid
+        )
+      );
+
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // Documents collection: file metadata
+    match /documents/{docId} {
+      allow read: if isSignedIn() && (
+        isAdmin() || (
+          resource.data.projectId is string &&
+          get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.clientId == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          request.resource.data.projectId is string &&
+          get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.clientId == request.auth.uid
+        )
+      );
+
+      allow update: if false; // immutable metadata except by admin via backend
+      allow delete: if isSignedIn() && isAdmin();
+    }
+
+    // Activities collection: client-scoped logs
+    match /activities/{activityId} {
+      allow read: if isSignedIn() && (
+        resource.data.clientId == request.auth.uid || isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.clientId == request.auth.uid || isAdmin()
+      );
+      allow update, delete: if isSignedIn() && isAdmin();
+    }
+
     // Default deny
     match /{document=**} {
       allow read, write: if false;

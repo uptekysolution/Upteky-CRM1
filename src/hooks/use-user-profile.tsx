@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { UserService as UsersService } from '@/lib/services/userService';
 
 export type UserProfile = {
   id: string;
@@ -39,6 +40,8 @@ export function useUserProfile(): UseUserProfileResult {
       }
 
       try {
+        // Ensure Firestore doc exists or is migrated to UID key
+        await UsersService.ensureUserDocForAuthUser(user);
         const ref = doc(db, 'users', user.uid);
         const snap = await getDoc(ref);
         if (snap.exists()) {

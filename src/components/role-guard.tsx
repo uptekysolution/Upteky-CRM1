@@ -7,6 +7,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { getDatabase, ref, get as getFromRealtimeDb } from 'firebase/database';
 import { auth, db, app } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { UserService as UsersService } from '@/lib/services/userService';
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -30,6 +31,8 @@ export function RoleGuard({ children, allowedRoles, fallbackPath = '/login' }: R
       }
 
       try {
+        // Ensure Firestore doc exists/migrated for this UID
+        await UsersService.ensureUserDocForAuthUser(user);
         // Fetch role: try Firestore first, then fall back to Realtime Database
         let role: string | undefined;
 

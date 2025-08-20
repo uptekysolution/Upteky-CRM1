@@ -20,7 +20,8 @@ import {
   createUserWithEmailAndPassword, 
   deleteUser as deleteAuthUser,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  User as FirebaseAuthUser
 } from 'firebase/auth';
 import { db, auth } from '@/lib/firebase';
 import { 
@@ -374,6 +375,51 @@ export class UserService {
   }
 
   // Utility Methods
+  static async ensureUserDocForAuthUser(authUser: FirebaseAuthUser): Promise<void> {
+    try {
+      const uidRef = doc(db, this.USERS_COLLECTION, authUser.uid);
+      const uidSnap = await getDoc(uidRef);
+      if (uidSnap.exists()) {
+        const currentData = uidSnap.data() as any;
+        if (!currentData || currentData.id !== authUser.uid) {
+          await updateDoc(uidRef, { id: authUser.uid, updatedAt: Timestamp.now() });
+        }
+        return;
+      }
+
+      const email = (authUser.email || '').toLowerCase();
+      if (!email) {
+        return;
+      }
+
+      const legacyQuery = query(
+        collection(db, this.USERS_COLLECTION),
+        where('email', '==', email),
+        limit(1)
+      );
+      const legacySnap = await getDocs(legacyQuery);
+      if (legacySnap.empty) {
+        return;
+      }
+
+      const legacyDoc = legacySnap.docs[0];
+      const legacyData = legacyDoc.data();
+
+      const batch = writeBatch(db);
+      batch.set(uidRef, {
+        ...legacyData,
+        id: authUser.uid,
+        email,
+        updatedAt: Timestamp.now(),
+      } as any, { merge: true });
+      batch.delete(legacyDoc.ref);
+      await batch.commit();
+    } catch (error) {
+      console.error('ensureUserDocForAuthUser failed:', error);
+      // Do not throw; login flow can still fall back to RTDB role
+    }
+  }
+
   static async sendPasswordResetEmail(email: string): Promise<void> {
     try {
       await sendPasswordResetEmail(auth, email);
