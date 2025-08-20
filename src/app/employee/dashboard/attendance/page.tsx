@@ -132,9 +132,9 @@ export default function EmployeeAttendancePage() {
                                 <CardTitle>Leave Calendar</CardTitle>
                                 <CardContent className="p-0 pt-4">
                                     <LeaveCalendar 
-                                        userRole="Employee"
-                                        attendanceData={[]}
-                                        currentUser={{ id: "employee", name: "Employee", role: "Employee" }}
+                                        userRole={currentUserRole}
+                                        leaveRequests={[]}
+                                        currentUserId={currentUserId}
                                     />
                                 </CardContent>
                             </CardHeader>
