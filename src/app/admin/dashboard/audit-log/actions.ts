@@ -16,9 +16,12 @@
  */
 
 import { accessAuditTool, type AccessAuditToolInput, type AccessAuditToolOutput } from '@/ai/flows/access-audit-tool'
+import { logUnusualAccess } from '@/lib/auditLogger'
+import { auth } from '@/lib/firebase-admin'
+import { cookies } from 'next/headers'
 
 /**
- * Executes the access audit AI flow with the provided input.
+ * Executes the access audit AI flow with the provided input and logs the event.
  * @param {AccessAuditToolInput} input - The data for the access event to be analyzed.
  * @returns {Promise<AccessAuditToolOutput | { error: string }>} - The analysis result from the AI, or an error object if the process fails.
  */
@@ -26,13 +29,47 @@ export async function runAccessAudit(
   input: AccessAuditToolInput
 ): Promise<AccessAuditToolOutput | { error: string }> {
   try {
-    // In a real app, you might add extra validation or logging here.
-    // This is also where you would implement fine-grained permission checks before executing the flow.
-    const result = await accessAuditTool(input);
-    return result;
+    // Get current user information from cookies
+    const cookieStore = await cookies()
+    const authToken = cookieStore.get('AuthToken')?.value
+    const userRole = cookieStore.get('UserRole')?.value
+
+    if (!authToken) {
+      return { error: 'Authentication required' }
+    }
+
+    // Verify the user token
+    const decodedToken = await auth.verifyIdToken(authToken)
+    const userId = decodedToken.uid
+    const userEmail = decodedToken.email || 'unknown'
+
+    // Run AI analysis
+    const result = await accessAuditTool(input)
+
+    // Log the audit event
+    try {
+      await logUnusualAccess(
+        userId,
+        userEmail,
+        userRole || 'Unknown',
+        input.actionType as any,
+        input.moduleAccessed,
+        input.dataAccessed,
+        result.isUnusual ? result.severity.toLowerCase() as any : 'low',
+        `${result.alertMessage} - ${result.recommendation}`,
+        {
+          aiAnalysis: result,
+          originalInput: input,
+        }
+      )
+    } catch (logError) {
+      console.error('Failed to log audit event:', logError)
+      // Don't fail the entire operation if logging fails
+    }
+
+    return result
   } catch (e) {
-    console.error("Error in runAccessAudit:", e);
-    // Return a generic error to the client to avoid exposing sensitive implementation details.
-    return { error: 'An unexpected error occurred while analyzing the access pattern.' };
+    console.error("Error in runAccessAudit:", e)
+    return { error: 'An unexpected error occurred while analyzing the access pattern.' }
   }
 }

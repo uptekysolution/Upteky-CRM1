@@ -5,22 +5,51 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAdmin() {
+      return request.auth.token.admin == true || 
+             request.auth.token.role == 'Admin' ||
+             request.auth.token.role == 'Sub-Admin';
+    }
+
+    function isHR() {
+      return request.auth.token.role == 'HR';
+    }
+
     // Users can read their own user document; admins can read all if custom claim set
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.token.admin == true);
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && (request.auth.uid == userId || request.auth.token.admin == true);
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       allow delete: if false;
+    }
+
+    // Audit Logs - Only admins and HR can read, but all authenticated users can write
+    match /auditLogs/{logId} {
+      // Only admins and HR can read audit logs
+      allow read: if isSignedIn() && (isAdmin() || isHR());
+      
+      // All authenticated users can create audit logs (for logging their own actions)
+      allow create: if isSignedIn() && 
+        request.resource.data.userId is string &&
+        request.resource.data.userEmail is string &&
+        request.resource.data.userRole is string &&
+        request.resource.data.actionType is string &&
+        request.resource.data.moduleAccessed is string &&
+        request.resource.data.description is string &&
+        request.resource.data.status in ['success', 'failed', 'pending'];
+      
+      // Only admins can update or delete audit logs
+      allow update, delete: if isSignedIn() && isAdmin();
     }
 
     // Tickets collection with per-client access controls
     match /tickets/{ticketId} {
       allow read: if isSignedIn() && (
-        resource.data.clientId == request.auth.uid || request.auth.token.admin == true
+        resource.data.clientId == request.auth.uid || isAdmin()
       );
 
       allow create: if isSignedIn() && (
-        request.resource.data.clientId == request.auth.uid || request.auth.token.admin == true
+        request.resource.data.clientId == request.auth.uid || isAdmin()
       ) &&
       request.resource.data.title is string &&
       request.resource.data.description is string &&
@@ -28,18 +57,18 @@ service cloud.firestore {
 
       // Client can update limited fields on own ticket; admin can update all
       allow update: if isSignedIn() && (
-        request.auth.token.admin == true || (
+        isAdmin() || (
           resource.data.clientId == request.auth.uid &&
           request.resource.data.diff(resource.data).changedKeys().hasOnly(['title','description','priority','lastMessage','lastUpdated','unreadByAdmin'])
         )
       );
 
-      allow delete: if isSignedIn() && request.auth.token.admin == true;
+      allow delete: if isSignedIn() && isAdmin();
 
       // Messages subcollection inherits parent access. Client can only write own messages.
       match /messages/{messageId} {
         allow read: if isSignedIn() && (
-          get(/databases/$(database)/documents/tickets/$(ticketId)).data.clientId == request.auth.uid || request.auth.token.admin == true
+          get(/databases/$(database)/documents/tickets/$(ticketId)).data.clientId == request.auth.uid || isAdmin()
         );
 
         allow create: if isSignedIn() && (

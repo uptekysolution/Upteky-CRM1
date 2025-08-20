@@ -62,6 +62,58 @@ export type AccessAuditToolOutput = z.infer<typeof AccessAuditToolOutputSchema>;
 export async function accessAuditTool(input: AccessAuditToolInput): Promise<AccessAuditToolOutput> {
   // In a real-world scenario, you might have a more complex flow,
   // potentially fetching user permission levels from a database via another tool.
+  // Simple heuristic engine used as baseline and fallback when the LLM is unavailable
+  function heuristicAnalysis(i: AccessAuditToolInput): AccessAuditToolOutput {
+    const role = (i.userRole || '').toLowerCase();
+    const mod = (i.moduleAccessed || '').toLowerCase();
+    const action = (i.actionType || '').toLowerCase();
+    const desc = (i.dataAccessed || '').toLowerCase();
+
+    // Defaults
+    let isUnusual = false;
+    let severity: 'Low' | 'Medium' | 'High' | 'Critical' = 'Low';
+    let alertMessage = 'No unusual pattern detected.';
+    let recommendation = 'No action needed.';
+
+    const criticalModules = ['permissions', 'user management'];
+    const sensitiveModules = ['payroll', 'crm', 'attendance', ...criticalModules];
+    const mentionsOthers = /(another|other|someone else|third party|not own|others)/i.test(desc);
+
+    // Typical benign case: employee reading own data
+    if (role === 'employee' && action === 'read' && mod === 'payroll' && !mentionsOthers) {
+      return {
+        isUnusual: false,
+        alertMessage: 'Employee reading own payroll data appears normal.',
+        severity: 'Low',
+        recommendation: 'No action needed.'
+      };
+    }
+
+    if (action === 'delete' && criticalModules.includes(mod)) {
+      isUnusual = true;
+      severity = 'Critical';
+      alertMessage = 'Delete action on a critical module detected.';
+      recommendation = 'Investigate immediately and review permission changes.';
+    } else if ((action === 'delete' || action === 'update') && sensitiveModules.includes(mod)) {
+      isUnusual = true;
+      severity = 'High';
+      alertMessage = 'Sensitive write operation detected.';
+      recommendation = 'Review recent changes and confirm authorization.';
+    } else if (role === 'employee' && sensitiveModules.includes(mod) && mentionsOthers) {
+      isUnusual = true;
+      severity = 'Medium';
+      alertMessage = 'Employee appears to access data of another user.';
+      recommendation = 'Verify if access aligns with policy for this user.';
+    } else if (role === 'hr' && criticalModules.includes(mod) && (action === 'update' || action === 'delete')) {
+      isUnusual = true;
+      severity = 'High';
+      alertMessage = 'HR modifying critical admin module.';
+      recommendation = 'Validate approvals and change tickets.';
+    }
+
+    return { isUnusual, alertMessage, severity, recommendation };
+  }
+
   const auditFlow = ai.defineFlow(
     {
       name: 'accessAuditFlow',
@@ -94,15 +146,45 @@ export async function accessAuditTool(input: AccessAuditToolInput): Promise<Acce
         - recommendation: string
       `;
 
-      const llmResponse = await ai.generate({
-        prompt: prompt,
-        model: 'googleai/gemini-pro',
-        output: {
-            schema: AccessAuditToolOutputSchema
-        }
-      });
+      try {
+        // Always compute a baseline first
+        const baseline = heuristicAnalysis(input);
+        // Use the default model configured in src/ai/genkit.ts
+        const llmResponse: any = await ai.generate({
+          prompt: prompt,
+          output: {
+              schema: AccessAuditToolOutputSchema
+          }
+        });
 
-      return llmResponse.output() ?? { isUnusual: true, alertMessage: "Failed to analyze log.", severity: "Critical", recommendation: "Review model output." };
+        // Support multiple Genkit response shapes
+        if (typeof llmResponse?.output === 'function') {
+          const out = llmResponse.output();
+          if (out) return out;
+        }
+        if (typeof llmResponse?.text === 'function') {
+          const text = await llmResponse.text();
+          try {
+            const parsed = JSON.parse(text);
+            AccessAuditToolOutputSchema.parse(parsed);
+            return parsed;
+          } catch {}
+        }
+        if (typeof llmResponse?.outputText === 'function') {
+          const text = await llmResponse.outputText();
+          try {
+            const parsed = JSON.parse(text);
+            AccessAuditToolOutputSchema.parse(parsed);
+            return parsed;
+          } catch {}
+        }
+        // If we couldn't parse the LLM output, return baseline instead of error
+        return baseline;
+      } catch (err) {
+        console.error('AI generation failed, falling back to rule-based analysis:', err);
+        // Return heuristic baseline
+        return heuristicAnalysis(input);
+      }
     }
   );
 

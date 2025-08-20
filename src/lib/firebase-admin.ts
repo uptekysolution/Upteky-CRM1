@@ -1,49 +1,35 @@
-import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import serviceAccount from '../../serviceAccountKey.json';
+import { getFirestore } from 'firebase-admin/firestore';
 
-let app: App;
+// Initialize Firebase Admin if not already initialized
+if (!getApps().length) {
+  try {
+    // Check if we have the required environment variables
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
-try {
-  console.log('Initializing Firebase Admin...');
-  const sa: any = (serviceAccount as any)?.default ?? (serviceAccount as any);
-  console.log('Service account project_id:', sa?.project_id);
-  
-  // Validate service account key
-  if (!sa?.project_id) {
-    throw new Error('Invalid service account key: missing project_id');
+    if (!projectId || !clientEmail || !privateKey) {
+      console.warn('Firebase Admin SDK environment variables not found. Using default app initialization.');
+      // Initialize with default credentials (for development)
+      initializeApp();
+    } else {
+      // Initialize with service account credentials
+      initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey: privateKey.replace(/\\n/g, '\n'),
+        }),
+      });
+    }
+  } catch (error) {
+    console.error('Error initializing Firebase Admin:', error);
+    // Fallback to default initialization
+    initializeApp();
   }
-  
-  if (!sa?.private_key) {
-    throw new Error('Invalid service account key: missing private_key');
-  }
-  
-  if (!sa?.client_email) {
-    throw new Error('Invalid service account key: missing client_email');
-  }
-  
-  console.log('Service account key validation passed');
-  
-  if (getApps().length === 0) {
-    const key = { ...sa, private_key: String(sa.private_key) };
-    app = initializeApp({
-      credential: cert(key as any),
-      projectId: sa.project_id,
-    });
-    console.log('Firebase Admin initialized successfully');
-  } else {
-    app = getApps()[0];
-    console.log('Firebase Admin already initialized');
-  }
-} catch (error) {
-  console.error('Error initializing Firebase Admin:', error);
-  throw error;
 }
 
-const db = getFirestore(app);
-const auth = getAuth(app);
-
-console.log('Firebase Admin setup complete');
-
-export { db, auth };
+export const auth = getAuth();
+export const adminDb = getFirestore();
