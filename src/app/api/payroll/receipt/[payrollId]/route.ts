@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 import { generatePayslipPDF } from '@/lib/pdf-generator'
+import { getStorage } from 'firebase-admin/storage'
 
 // GET /api/payroll/receipt/:payrollId — Authenticated
 // Test endpoint: GET /api/payroll/receipt/test-pdf (for debugging)
@@ -157,13 +158,21 @@ export async function GET(
       }, { status: 400 })
     }
     
-    // If PDF already exists, return signed URL
+    // If PDF already exists in Storage, return signed URL
     if (payrollData?.pdfPath) {
-      // For now, return the path. In production, you'd generate a signed URL
-      return NextResponse.json({
-        pdfPath: payrollData.pdfPath,
-        message: 'PDF already exists'
-      })
+      try {
+        const bucketName = (process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '').replace(/^gs:\/\//, '')
+        const storage = getStorage()
+        const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket()
+        const file = bucket.file(payrollData.pdfPath)
+        const [exists] = await file.exists()
+        if (exists) {
+          const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 1000 * 60 * 60 * 24 * 7 })
+          return NextResponse.json({ pdfUrl: signedUrl, message: 'PDF already exists' })
+        }
+      } catch (e) {
+        console.warn('Could not generate signed URL for existing pdfPath, will proceed to generate new PDF:', e)
+      }
     }
     
     // Generate PDF with safe data
@@ -234,28 +243,45 @@ export async function GET(
       }, { status: 500 })
     }
     
-    // Save to Firebase Storage (simplified - in production use Firebase Admin Storage)
+    // Save to Firebase Storage via Admin SDK and return the PDF response
     const fileName = `payslips/${safePayrollData.year}/${safePayrollData.month}/${safePayrollData.userId}-${Date.now()}.pdf`
-    
-    // Update payroll document with PDF path
     try {
-      await db.collection('payroll').doc(payrollId).update({
-        pdfPath: fileName,
-        updatedAt: new Date()
-      })
-      console.log('Payroll document updated with PDF path:', fileName)
-    } catch (updateError) {
-      console.error('Error updating payroll document:', updateError)
-      // Continue with PDF response even if update fails
-    }
-    
-    // Return PDF as response
-    return new NextResponse(pdfBuffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="payslip-${safePayrollData.userId}-${safePayrollData.month}-${safePayrollData.year}.pdf"`
+      const bucketName = (process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '').replace(/^gs:\/\//, '')
+      const storage = getStorage()
+      const bucket = bucketName ? storage.bucket(bucketName) : storage.bucket()
+      const file = bucket.file(fileName)
+      await file.save(pdfBuffer, { contentType: 'application/pdf', resumable: false, public: false })
+      const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 1000 * 60 * 60 * 24 * 7 })
+
+      // Update payroll document with Storage path
+      try {
+        await db.collection('payroll').doc(payrollId).set({
+          pdfPath: fileName,
+          updatedAt: new Date(),
+        }, { merge: true })
+        console.log('Payroll document updated with PDF path:', fileName)
+      } catch (updateError) {
+        console.error('Error updating payroll document:', updateError)
       }
-    })
+
+      // Return the PDF binary for immediate download
+      return new NextResponse(pdfBuffer, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="payslip-${safePayrollData.userId}-${safePayrollData.month}-${safePayrollData.year}.pdf"`,
+          'x-payslip-url': signedUrl,
+        }
+      })
+    } catch (storageError) {
+      console.error('Error uploading PDF to Storage:', storageError)
+      // Fallback: return PDF without uploading
+      return new NextResponse(pdfBuffer, {
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="payslip-${safePayrollData.userId}-${safePayrollData.month}-${safePayrollData.year}.pdf"`
+        }
+      })
+    }
   } catch (error) {
     console.error('Error generating payslip:', error)
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 })

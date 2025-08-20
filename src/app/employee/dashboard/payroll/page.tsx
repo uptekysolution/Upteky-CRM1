@@ -8,13 +8,23 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { Lock, Download, Calendar, RefreshCw, User, DollarSign, Clock } from "lucide-react"
+import { History as HistoryIcon } from "lucide-react"
 import { 
   fetchEmployeePayroll, 
   downloadPayslip, 
   PayrollData, 
   getMonthName, 
-  formatCurrency 
+  formatCurrency,
+  fetchEmployeePayrollHistory,
 } from '@/lib/payroll'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
 export default function EmployeePayrollPage() {
   const [payrollData, setPayrollData] = useState<PayrollData | null>(null)
@@ -22,11 +32,18 @@ export default function EmployeePayrollPage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
   const { toast } = useToast()
+  const [history, setHistory] = useState<PayrollData[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   // Fetch payroll data when month/year changes
   useEffect(() => {
     fetchPayrollDataForMonth()
   }, [selectedMonth, selectedYear])
+
+  // Fetch history once on mount
+  useEffect(() => {
+    fetchPayrollHistory()
+  }, [])
 
   const fetchPayrollDataForMonth = async () => {
     setLoading(true)
@@ -62,6 +79,23 @@ export default function EmployeePayrollPage() {
         description: "Failed to download payslip. Please try again.",
         variant: "destructive"
       })
+    }
+  }
+
+  const fetchPayrollHistory = async () => {
+    setHistoryLoading(true)
+    try {
+      const items = await fetchEmployeePayrollHistory()
+      setHistory(items)
+    } catch (error) {
+      console.error('Error fetching payroll history:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to load payroll history.',
+        variant: 'destructive',
+      })
+    } finally {
+      setHistoryLoading(false)
     }
   }
 
@@ -207,9 +241,27 @@ export default function EmployeePayrollPage() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Allowances</span>
+                      <span className="font-mono">
+                        {formatCurrency(payrollData.allowancesTotal || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Deductions</span>
+                      <span className="font-mono">
+                        -{formatCurrency(payrollData.deductionsTotal || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
                       <span className="text-muted-foreground">Amount Payable</span>
                       <span className="font-mono font-bold text-lg text-primary">
                         {formatCurrency(payrollData.salaryPaid)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-background rounded-lg">
+                      <span className="text-muted-foreground">Net Pay</span>
+                      <span className="font-mono font-bold">
+                        {formatCurrency(payrollData.netPay ?? (payrollData.salaryPaid + (payrollData.allowancesTotal || 0) - (payrollData.deductionsTotal || 0)))}
                       </span>
                     </div>
                   </div>
@@ -227,6 +279,57 @@ export default function EmployeePayrollPage() {
                   Download Payslip
                 </Button>
               </div>
+
+              {/* Payroll History */}
+              <Card className="bg-muted/30">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <HistoryIcon />
+                    <h3 className="text-lg font-semibold">Payroll History</h3>
+                  </div>
+                  {historyLoading ? (
+                    <div className="flex items-center justify-center p-6 text-muted-foreground">Loading history...</div>
+                  ) : history.length === 0 ? (
+                    <div className="text-sm text-muted-foreground p-4">No historical payroll records found.</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Period</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead className="text-center">Status</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {history.map((item) => (
+                            <TableRow key={item.id || `${item.userId}_${item.month}_${item.year}`}>
+                              <TableCell>{getMonthName(item.month)} {item.year}</TableCell>
+                              <TableCell className="text-right font-mono">{formatCurrency(item.netPay ?? item.salaryPaid)}</TableCell>
+                              <TableCell className="text-center"><Badge>{item.status || 'Unpaid'}</Badge></TableCell>
+                              <TableCell className="text-right">
+                                <Button size="sm" variant="outline" onClick={async () => {
+                                  const payrollId = item.id || `${item.userId}_${item.month}_${item.year}`
+                                  try {
+                                    await downloadPayslip(payrollId)
+                                    toast({ title: 'Payslip', description: 'Download started.' })
+                                  } catch (e) {
+                                    toast({ title: 'Error', description: 'Failed to download payslip.', variant: 'destructive' })
+                                  }
+                                }}>
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Download
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           ) : (
             <div className="flex items-center justify-center rounded-lg border border-dashed p-12 text-center">

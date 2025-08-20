@@ -89,7 +89,10 @@ export async function GET(
         salaryType: payrollData?.salaryType || userData?.salaryType || 'monthly',
         salaryAmount: payrollData?.salaryAmount || userData?.salaryAmount || 0,
         status: payrollData?.status || 'Unpaid',
-        pdfPath: payrollData?.pdfPath || null
+        pdfPath: payrollData?.pdfPath || null,
+        allowancesTotal: payrollData?.allowancesTotal || 0,
+        deductionsTotal: payrollData?.deductionsTotal || 0,
+        netPay: payrollData?.netPay,
       })
     }
     
@@ -116,7 +119,10 @@ export async function GET(
       salaryType: userData?.salaryType || 'monthly',
       salaryAmount: userData?.salaryAmount || 0,
       status: 'Unpaid',
-      pdfPath: null
+      pdfPath: null,
+      allowancesTotal: 0,
+      deductionsTotal: 0,
+      netPay: Math.round(salaryPaid * 100) / 100,
     })
   } catch (error) {
     console.error('Error fetching employee payroll data:', error)

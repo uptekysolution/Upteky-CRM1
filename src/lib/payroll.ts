@@ -13,6 +13,11 @@ export interface PayrollData {
   salaryAmount: number
   status?: 'Paid' | 'Unpaid'
   pdfPath?: string | null
+  // Optional breakdowns if available in Firestore
+  allowancesTotal?: number
+  deductionsTotal?: number
+  netPay?: number
+  payslipUrl?: string | null
   createdAt?: Date
 }
 
@@ -72,9 +77,52 @@ export const fetchEmployeePayroll = async (month: number, year: number): Promise
       throw new Error(`HTTP error! status: ${response.status}`)
     }
     
-    return await response.json()
+    const data: PayrollData = await response.json()
+    // Compute net pay client-side if not provided
+    if (data && typeof data.netPay === 'undefined') {
+      const allowances = data.allowancesTotal || 0
+      const deductions = data.deductionsTotal || 0
+      data.netPay = Math.round((data.salaryPaid + allowances - deductions) * 100) / 100
+    }
+    return data
   } catch (error) {
     console.error('Error fetching employee payroll:', error)
+    throw error
+  }
+}
+
+// Fetch payroll history for the authenticated employee
+export const fetchEmployeePayrollHistory = async (): Promise<PayrollData[]> => {
+  try {
+    const currentUser = auth.currentUser
+    if (!currentUser) {
+      throw new Error('User not authenticated')
+    }
+
+    const token = await currentUser.getIdToken()
+    const response = await fetch(`/api/payroll/me/history`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const list: PayrollData[] = await response.json()
+    return list.map((p) => {
+      if (typeof p.netPay === 'undefined') {
+        const allowances = p.allowancesTotal || 0
+        const deductions = p.deductionsTotal || 0
+        p.netPay = Math.round((p.salaryPaid + allowances - deductions) * 100) / 100
+      }
+      return p
+    })
+  } catch (error) {
+    console.error('Error fetching employee payroll history:', error)
     throw error
   }
 }
@@ -165,9 +213,13 @@ export const downloadPayslip = async (payrollId: string): Promise<void> => {
     
     if (contentType?.includes('application/json')) {
       const data = await response.json()
-      // PDF already exists, you could redirect to the URL or handle as needed
-      console.log('PDF already exists:', data.pdfPath)
-      return
+      const url: string | undefined = data.pdfUrl || data.signedUrl || data.url || data.pdfPath
+      if (url) {
+        // Open in a new tab for viewing/downloading
+        window.open(url, '_blank', 'noopener,noreferrer')
+        return
+      }
+      // Fall through if no URL provided
     }
     
     // PDF generated, create download

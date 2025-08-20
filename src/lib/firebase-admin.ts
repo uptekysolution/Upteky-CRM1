@@ -10,10 +10,11 @@ if (!getApps().length) {
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
     const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
+    const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
     if (!projectId || !clientEmail || !privateKey) {
       console.warn('Firebase Admin SDK environment variables not found. Using default app initialization.');
       // Initialize with default credentials (for development)
-      initializeApp();
+      initializeApp(storageBucket ? { storageBucket } as any : undefined);
     } else {
       // Initialize with service account credentials
       initializeApp({
@@ -22,12 +23,14 @@ if (!getApps().length) {
           clientEmail,
           privateKey: privateKey.replace(/\\n/g, '\n'),
         }),
+        ...(storageBucket ? { storageBucket } : {}),
       });
     }
   } catch (error) {
     console.error('Error initializing Firebase Admin:', error);
     // Fallback to default initialization
-    initializeApp();
+    const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    initializeApp(storageBucket ? { storageBucket } as any : undefined);
   }
 }
 
