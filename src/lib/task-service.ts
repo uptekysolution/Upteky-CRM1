@@ -78,6 +78,9 @@ export class TaskService {
   // Get tasks linked to a client's projects
   static async getTasksByClient(clientId: string): Promise<Task[]> {
     try {
+      if (!clientId) {
+        return [];
+      }
       // 1) Load all project ids for this client
       const projectsQuery = query(collection(db, 'projects'), where('clientId', '==', clientId));
       const projectsSnap = await getDocs(projectsQuery);
@@ -108,8 +111,9 @@ export class TaskService {
       tasks.sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
       return tasks;
     } catch (error) {
+      // Return a safe fallback to avoid noisy errors on client dashboard polling
       console.error('Error getting tasks by client:', error);
-      throw new Error('Failed to get client tasks');
+      return [];
     }
   }
 
