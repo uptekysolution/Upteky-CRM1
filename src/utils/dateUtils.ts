@@ -87,3 +87,22 @@ export function safeToISOString(dateObj: any): string {
 export function safeToLocaleString(dateObj: any, options?: Intl.DateTimeFormatOptions): string {
   return safeToDate(dateObj).toLocaleString(undefined, options);
 }
+
+/**
+ * Cleans a timesheet entry object by removing undefined values
+ * This prevents Firestore errors when updating documents
+ */
+export function cleanTimesheetEntry(entry: any) {
+  return {
+    id: entry.id,
+    date: entry.date,
+    projectId: entry.projectId,
+    projectName: entry.projectName,
+    hours: entry.hours,
+    ...(entry.taskId && { taskId: entry.taskId }),
+    ...(entry.taskName && { taskName: entry.taskName }),
+    ...(entry.notes && { notes: entry.notes }),
+    ...(entry.startTime && { startTime: entry.startTime }),
+    ...(entry.endTime && { endTime: entry.endTime })
+  };
+}

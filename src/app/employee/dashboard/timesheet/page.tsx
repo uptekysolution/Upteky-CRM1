@@ -13,6 +13,7 @@ import { TimesheetService } from '@/lib/timesheet-service';
 import { UserService } from '@/lib/user-service';
 import { TimesheetWeekGrid } from '@/components/timesheet/timesheet-week-grid';
 import { useToast } from '@/hooks/use-toast';
+import { cleanTimesheetEntry } from '@/utils/dateUtils';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -123,6 +124,9 @@ export default function EmployeeTimesheetPage() {
       return;
     }
 
+    // Clean the entry object to remove undefined values
+    const cleanEntry = cleanTimesheetEntry(entry);
+
     if (!currentTimesheet) {
       // Create new timesheet for current week
       const newTimesheet: Omit<Timesheet, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -131,8 +135,8 @@ export default function EmployeeTimesheetPage() {
         employeeEmail: currentUser.email,
         weekStartDate: weekStart,
         weekEndDate: weekEnd,
-        entries: [entry],
-        totalHours: entry.hours,
+        entries: [cleanEntry],
+        totalHours: cleanEntry.hours,
         status: TimesheetStatus.DRAFT
       };
 
@@ -150,7 +154,7 @@ export default function EmployeeTimesheetPage() {
       });
     } else {
       // Add to existing timesheet
-      const updatedEntries = [...currentTimesheet.entries, entry];
+      const updatedEntries = [...currentTimesheet.entries, cleanEntry];
       const totalHours = TimesheetService.calculateTotalHours(updatedEntries);
       
       TimesheetService.updateTimesheet(currentTimesheet.id, {
@@ -174,8 +178,11 @@ export default function EmployeeTimesheetPage() {
   const handleUpdateEntry = (entry: any) => {
     if (!currentTimesheet) return;
 
+    // Clean the entry object to remove undefined values
+    const cleanEntry = cleanTimesheetEntry(entry);
+
     const updatedEntries = currentTimesheet.entries.map(e => 
-      e.id === entry.id ? entry : e
+      e.id === entry.id ? cleanEntry : e
     );
     const totalHours = TimesheetService.calculateTotalHours(updatedEntries);
     

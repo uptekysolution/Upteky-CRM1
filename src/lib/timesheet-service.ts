@@ -16,6 +16,7 @@ import {
 import { db } from './firebase';
 import { Timesheet, TimesheetEntry, TimesheetStatus, TimesheetFilters, Project } from '@/types/timesheet';
 import { startOfWeek, endOfWeek, format, addWeeks, subWeeks } from 'date-fns';
+import { safeToDate } from '@/utils/dateUtils';
 
 const TIMESHEETS_COLLECTION = 'timesheets';
 const PROJECTS_COLLECTION = 'projects';
@@ -28,11 +29,11 @@ export class TimesheetService {
         ...timesheetData,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        weekStartDate: Timestamp.fromDate(timesheetData.weekStartDate),
-        weekEndDate: Timestamp.fromDate(timesheetData.weekEndDate),
+        weekStartDate: Timestamp.fromDate(safeToDate(timesheetData.weekStartDate) || new Date()),
+        weekEndDate: Timestamp.fromDate(safeToDate(timesheetData.weekEndDate) || new Date()),
         entries: timesheetData.entries.map(entry => ({
           ...entry,
-          date: Timestamp.fromDate(entry.date)
+          date: Timestamp.fromDate(safeToDate(entry.date) || new Date())
         }))
       });
       return docRef.id;
@@ -52,15 +53,15 @@ export class TimesheetService {
       };
 
       if (updates.weekStartDate) {
-        updateData.weekStartDate = Timestamp.fromDate(updates.weekStartDate);
+        updateData.weekStartDate = Timestamp.fromDate(safeToDate(updates.weekStartDate) || new Date());
       }
       if (updates.weekEndDate) {
-        updateData.weekEndDate = Timestamp.fromDate(updates.weekEndDate);
+        updateData.weekEndDate = Timestamp.fromDate(safeToDate(updates.weekEndDate) || new Date());
       }
       if (updates.entries) {
         updateData.entries = updates.entries.map(entry => ({
           ...entry,
-          date: Timestamp.fromDate(entry.date)
+          date: Timestamp.fromDate(safeToDate(entry.date) || new Date())
         }));
       }
 
@@ -82,17 +83,17 @@ export class TimesheetService {
         return {
           id: docSnap.id,
           ...data,
-          weekStartDate: data.weekStartDate?.toDate() || new Date(),
-          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+          weekEndDate: safeToDate(data.weekEndDate) || new Date(),
           entries: data.entries?.map((entry: any) => ({
             ...entry,
-            date: entry.date?.toDate() || new Date()
+            date: safeToDate(entry.date) || new Date()
           })) || [],
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          submittedAt: data.submittedAt?.toDate(),
-          approvedAt: data.approvedAt?.toDate(),
-          rejectedAt: data.rejectedAt?.toDate()
+          createdAt: safeToDate(data.createdAt) || new Date(),
+          updatedAt: safeToDate(data.updatedAt) || new Date(),
+          submittedAt: safeToDate(data.submittedAt) || undefined,
+          approvedAt: safeToDate(data.approvedAt) || undefined,
+          rejectedAt: safeToDate(data.rejectedAt) || undefined
         } as Timesheet;
       }
       return null;
@@ -116,17 +117,17 @@ export class TimesheetService {
         return {
           id: doc.id,
           ...data,
-          weekStartDate: data.weekStartDate?.toDate() || new Date(),
-          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+          weekEndDate: safeToDate(data.weekEndDate) || new Date(),
           entries: data.entries?.map((entry: any) => ({
             ...entry,
-            date: entry.date?.toDate() || new Date()
+            date: safeToDate(entry.date) || new Date()
           })) || [],
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          submittedAt: data.submittedAt?.toDate(),
-          approvedAt: data.approvedAt?.toDate(),
-          rejectedAt: data.rejectedAt?.toDate()
+          createdAt: safeToDate(data.createdAt) || new Date(),
+          updatedAt: safeToDate(data.updatedAt) || new Date(),
+          submittedAt: safeToDate(data.submittedAt) || undefined,
+          approvedAt: safeToDate(data.approvedAt) || undefined,
+          rejectedAt: safeToDate(data.rejectedAt) || undefined
         } as Timesheet;
       });
     } catch (error) {
@@ -148,17 +149,17 @@ export class TimesheetService {
         return {
           id: doc.id,
           ...data,
-          weekStartDate: data.weekStartDate?.toDate() || new Date(),
-          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+          weekEndDate: safeToDate(data.weekEndDate) || new Date(),
           entries: data.entries?.map((entry: any) => ({
             ...entry,
-            date: entry.date?.toDate() || new Date()
+            date: safeToDate(entry.date) || new Date()
           })) || [],
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          submittedAt: data.submittedAt?.toDate(),
-          approvedAt: data.approvedAt?.toDate(),
-          rejectedAt: data.rejectedAt?.toDate()
+          createdAt: safeToDate(data.createdAt) || new Date(),
+          updatedAt: safeToDate(data.updatedAt) || new Date(),
+          submittedAt: safeToDate(data.submittedAt) || undefined,
+          approvedAt: safeToDate(data.approvedAt) || undefined,
+          rejectedAt: safeToDate(data.rejectedAt) || undefined
         } as Timesheet;
       });
     } catch (error) {
@@ -190,17 +191,17 @@ export class TimesheetService {
       return {
         id: doc.id,
         ...data,
-        weekStartDate: data.weekStartDate?.toDate() || new Date(),
-        weekEndDate: data.weekEndDate?.toDate() || new Date(),
+        weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+        weekEndDate: safeToDate(data.weekEndDate) || new Date(),
         entries: data.entries?.map((entry: any) => ({
           ...entry,
-          date: entry.date?.toDate() || new Date()
+          date: safeToDate(entry.date) || new Date()
         })) || [],
-        createdAt: data.createdAt?.toDate() || new Date(),
-        updatedAt: data.updatedAt?.toDate() || new Date(),
-        submittedAt: data.submittedAt?.toDate(),
-        approvedAt: data.approvedAt?.toDate(),
-        rejectedAt: data.rejectedAt?.toDate()
+        createdAt: safeToDate(data.createdAt) || new Date(),
+        updatedAt: safeToDate(data.updatedAt) || new Date(),
+        submittedAt: safeToDate(data.submittedAt) || undefined,
+        approvedAt: safeToDate(data.approvedAt) || undefined,
+        rejectedAt: safeToDate(data.rejectedAt) || undefined
       } as Timesheet;
     } catch (error) {
       console.error('Error getting current week timesheet:', error);
@@ -282,17 +283,17 @@ export class TimesheetService {
         return {
           id: doc.id,
           ...data,
-          weekStartDate: data.weekStartDate?.toDate() || new Date(),
-          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+          weekEndDate: safeToDate(data.weekEndDate) || new Date(),
           entries: data.entries?.map((entry: any) => ({
             ...entry,
-            date: entry.date?.toDate() || new Date()
+            date: safeToDate(entry.date) || new Date()
           })) || [],
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          submittedAt: data.submittedAt?.toDate(),
-          approvedAt: data.approvedAt?.toDate(),
-          rejectedAt: data.rejectedAt?.toDate()
+          createdAt: safeToDate(data.createdAt) || new Date(),
+          updatedAt: safeToDate(data.updatedAt) || new Date(),
+          submittedAt: safeToDate(data.submittedAt) || undefined,
+          approvedAt: safeToDate(data.approvedAt) || undefined,
+          rejectedAt: safeToDate(data.rejectedAt) || undefined
         } as Timesheet;
       });
       callback(timesheets);
@@ -311,17 +312,17 @@ export class TimesheetService {
         return {
           id: doc.id,
           ...data,
-          weekStartDate: data.weekStartDate?.toDate() || new Date(),
-          weekEndDate: data.weekEndDate?.toDate() || new Date(),
+          weekStartDate: safeToDate(data.weekStartDate) || new Date(),
+          weekEndDate: safeToDate(data.weekEndDate) || new Date(),
           entries: data.entries?.map((entry: any) => ({
             ...entry,
-            date: entry.date?.toDate() || new Date()
+            date: safeToDate(entry.date) || new Date()
           })) || [],
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          submittedAt: data.submittedAt?.toDate(),
-          approvedAt: data.approvedAt?.toDate(),
-          rejectedAt: data.rejectedAt?.toDate()
+          createdAt: safeToDate(data.createdAt) || new Date(),
+          updatedAt: safeToDate(data.updatedAt) || new Date(),
+          submittedAt: safeToDate(data.submittedAt) || undefined,
+          approvedAt: safeToDate(data.approvedAt) || undefined,
+          rejectedAt: safeToDate(data.rejectedAt) || undefined
         } as Timesheet;
       });
       callback(timesheets);
@@ -354,8 +355,8 @@ export class TimesheetService {
       return querySnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+        createdAt: safeToDate(doc.data().createdAt) || new Date(),
+        updatedAt: safeToDate(doc.data().updatedAt) || new Date()
       })) as Project[];
     } catch (error) {
       console.error('Error getting projects:', error);

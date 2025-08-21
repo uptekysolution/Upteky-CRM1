@@ -61,12 +61,12 @@ export function TimesheetEntryForm({ entry, projects, date, onSave, onCancel }: 
       date,
       projectId: formData.projectId,
       projectName: formData.projectName,
-      taskId: formData.taskId || undefined,
-      taskName: formData.taskName || undefined,
       hours: formData.hours,
-      notes: formData.notes || undefined,
-      startTime: formData.startTime || undefined,
-      endTime: formData.endTime || undefined
+      ...(formData.taskId && { taskId: formData.taskId }),
+      ...(formData.taskName && { taskName: formData.taskName }),
+      ...(formData.notes && { notes: formData.notes }),
+      ...(formData.startTime && { startTime: formData.startTime }),
+      ...(formData.endTime && { endTime: formData.endTime })
     };
 
     onSave(newEntry);
