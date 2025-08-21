@@ -55,6 +55,9 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
   const [saturdayOffDates, setSaturdayOffDates] = useState<string[]>([])
   const [isAdminDialogOpen, setIsAdminDialogOpen] = useState(false)
   const [adminSelectedSaturdays, setAdminSelectedSaturdays] = useState<string[]>([])
+  const [backendWorkingDays, setBackendWorkingDays] = useState<number | null>(null)
+  const [backendPresentDays, setBackendPresentDays] = useState<number | null>(null)
+  const [backendAttendanceRate, setBackendAttendanceRate] = useState<number | null>(null)
 
   // Get current user
   useEffect(() => {
@@ -118,6 +121,42 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
     }
     loadSaturdayOff()
   }, [currentYear, currentMonth])
+
+  // Fetch backend working days and present days summary
+  useEffect(() => {
+    const run = async () => {
+      if (!currentUser) return
+      try {
+        const token = await currentUser.getIdToken()
+        // Working days
+        const wdRes = await fetch(`/api/calendar/working-days/${currentMonth + 1}?year=${currentYear}`)
+        if (wdRes.ok) {
+          const wd = await wdRes.json()
+          setBackendWorkingDays(wd.totalWorkingDays)
+        } else {
+          setBackendWorkingDays(null)
+        }
+        // Attendance summary
+        const sumRes = await fetch(`/api/attendance/${currentUser.uid}/${currentMonth + 1}/summary?year=${currentYear}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (sumRes.ok) {
+          const sum = await sumRes.json()
+          setBackendPresentDays(sum.presentDays)
+          setBackendAttendanceRate(sum.attendanceRate)
+        } else {
+          setBackendPresentDays(null)
+          setBackendAttendanceRate(null)
+        }
+      } catch (e) {
+        console.error('Failed to fetch backend working/summary:', e)
+        setBackendWorkingDays(null)
+        setBackendPresentDays(null)
+        setBackendAttendanceRate(null)
+      }
+    }
+    run()
+  }, [currentUser, currentMonth, currentYear, saturdayOffDates])
 
   // Fetch leave requests when user changes
   useEffect(() => {
@@ -499,7 +538,7 @@ export function HolidayCalendar({ records: propRecords, loading: propLoading = f
                 <span className="text-sm font-medium text-blue-800">Working Days</span>
               </div>
               <div className="text-lg font-bold text-blue-900">
-                {calculatePresentDays()}/{calculateWorkingDays()} days
+                {(backendPresentDays ?? calculatePresentDays())}/{(backendWorkingDays ?? calculateWorkingDays())} days
               </div>
             </div>
             <p className="text-xs text-blue-600 mt-1">

@@ -1,37 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
-import { isAdditionalHoliday } from '@/lib/constants/holidays'
+import { computeWorkingDays } from '@/lib/working-days'
 
-// Helper: Calculate working days for a month
-function calculateWorkingDays(year: number, month: number): number {
-  const startDate = new Date(year, month - 1, 1)
-  const endDate = new Date(year, month, 0)
-  let workingDays = 0
-  
-  for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
-    const dateStr = date.toISOString().split('T')[0]
-    if (!isAdditionalHoliday(dateStr)) {
-      workingDays++
-    }
-  }
-  
-  return workingDays
-}
-
-// Helper: Calculate present days for a user in a month
+function mstr(month: number): string { return month.toString().padStart(2, '0') }
+// Helper: Calculate distinct present days for a user in a month
 async function calculatePresentDays(userId: string, year: number, month: number): Promise<number> {
-  const monthStr = month.toString().padStart(2, '0')
-  const startDate = `${year}-${monthStr}-01`
-  const endDate = `${year}-${monthStr}-31`
-  
-  const snapshot = await db.collection('attendance')
+  const startDate = `${year}-${mstr(month)}-01`
+  const endDate = `${year}-${mstr(month)}-31`
+  const startOfMonth = new Date(`${startDate}T00:00:00.000Z`)
+  const endOfMonth = new Date(new Date(year, month, 0).toISOString().split('T')[0] + 'T23:59:59.999Z')
+
+  const uniqueDates = new Set<string>()
+  // attendance with userId + date
+  const snapUserId = await db.collection('attendance')
     .where('userId', '==', userId)
     .where('date', '>=', startDate)
     .where('date', '<=', endDate)
-    .where('status', '==', 'Present')
     .get()
-  
-  return snapshot.size
+  snapUserId.forEach(doc => {
+    const data = doc.data() as any
+    const dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) return
+    if (data.checkIn || data.status === 'Present') uniqueDates.add(dateVal)
+  })
+
+  // attendance with uid + date
+  const snapUidDate = await db.collection('attendance')
+    .where('uid', '==', userId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get()
+  snapUidDate.forEach(doc => {
+    const data = doc.data() as any
+    const dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) return
+    if (data.checkIn || data.status === 'Present') uniqueDates.add(dateVal)
+  })
+
+  // attendance with uid + createdAt
+  const snapUidCreated = await db.collection('attendance')
+    .where('uid', '==', userId)
+    .where('createdAt', '>=', startOfMonth)
+    .where('createdAt', '<=', endOfMonth)
+    .get()
+  snapUidCreated.forEach(doc => {
+    const data = doc.data() as any
+    const ts = data.createdAt?.toDate ? data.createdAt.toDate() : (data.checkIn?.toDate ? data.checkIn.toDate() : null)
+    if (!ts) return
+    const dateVal = ts.toISOString().split('T')[0]
+    if (data.checkIn || data.status === 'Present') uniqueDates.add(dateVal)
+  })
+
+  // attendanceRecords by userId; filter month using timestamps if date is absent
+  const snapRecords = await db.collection('attendanceRecords')
+    .where('userId', '==', userId)
+    .get()
+  snapRecords.forEach(doc => {
+    const data = doc.data() as any
+    let dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) {
+      const ts = data.clockInTime?.toDate ? data.clockInTime.toDate() : (data.createdAt?.toDate ? data.createdAt.toDate() : null)
+      if (!ts) return
+      const y = ts.getUTCFullYear()
+      const m = ts.getUTCMonth() + 1
+      if (y !== year || m !== month) return
+      dateVal = ts.toISOString().split('T')[0]
+    } else {
+      const [yy, mm] = dateVal.split('-')
+      if (parseInt(yy) !== year || parseInt(mm) !== month) return
+    }
+    if (data.checkIn || data.clockInTime) uniqueDates.add(dateVal)
+  })
+
+  return uniqueDates.size
 }
 
 // GET /api/payroll/me/:month/:year — Authenticated employee
@@ -76,38 +117,44 @@ export async function GET(
       .doc(`${userId}_${month}_${year}`)
       .get()
     
+    // Calculate fresh values for dynamic UI regardless of payroll doc existence
+    const { totalWorkingDays } = await computeWorkingDays(year, month)
+    const presentDays = await calculatePresentDays(userId, year, month)
+
+    // Base salary inputs
+    const salaryType = (userData?.salaryType || 'monthly') as 'monthly' | 'daily'
+    const salaryAmount = userData?.salaryAmount || 0
+
+    // Calculate salary
+    let salaryPaid = 0
+    if (salaryType === 'monthly' && salaryAmount) {
+      salaryPaid = (presentDays / totalWorkingDays) * salaryAmount
+    } else if (salaryType === 'daily' && salaryAmount) {
+      salaryPaid = presentDays * salaryAmount
+    }
+
     if (payrollDoc.exists) {
-      const payrollData = payrollDoc.data()
+      const payrollData = payrollDoc.data() || {}
+      // Return dynamic fields merged with stored document info
       return NextResponse.json({
         userId,
         name: userData?.name || 'Unknown',
         month,
         year,
-        presentDays: payrollData?.presentDays || 0,
-        totalWorkingDays: payrollData?.totalWorkingDays || 0,
-        salaryPaid: payrollData?.salaryPaid || 0,
-        salaryType: payrollData?.salaryType || userData?.salaryType || 'monthly',
-        salaryAmount: payrollData?.salaryAmount || userData?.salaryAmount || 0,
+        presentDays,
+        totalWorkingDays,
+        salaryPaid: Math.round(salaryPaid * 100) / 100,
+        salaryType: payrollData?.salaryType || salaryType,
+        salaryAmount: payrollData?.salaryAmount || salaryAmount,
         status: payrollData?.status || 'Unpaid',
         pdfPath: payrollData?.pdfPath || null,
         allowancesTotal: payrollData?.allowancesTotal || 0,
         deductionsTotal: payrollData?.deductionsTotal || 0,
-        netPay: payrollData?.netPay,
+        netPay: payrollData?.netPay ?? Math.round(salaryPaid * 100) / 100,
       })
     }
-    
-    // Calculate payroll data
-    const totalWorkingDays = calculateWorkingDays(year, month)
-    const presentDays = await calculatePresentDays(userId, year, month)
-    
-    // Calculate salary
-    let salaryPaid = 0
-    if (userData?.salaryType === 'monthly' && userData?.salaryAmount) {
-      salaryPaid = (presentDays / totalWorkingDays) * userData.salaryAmount
-    } else if (userData?.salaryType === 'daily' && userData?.salaryAmount) {
-      salaryPaid = presentDays * userData.salaryAmount
-    }
-    
+
+    // No stored payroll: return computed values
     return NextResponse.json({
       userId,
       name: userData?.name || 'Unknown',
@@ -115,9 +162,9 @@ export async function GET(
       year,
       presentDays,
       totalWorkingDays,
-      salaryPaid: Math.round(salaryPaid * 100) / 100, // Round to 2 decimal places
-      salaryType: userData?.salaryType || 'monthly',
-      salaryAmount: userData?.salaryAmount || 0,
+      salaryPaid: Math.round(salaryPaid * 100) / 100,
+      salaryType,
+      salaryAmount,
       status: 'Unpaid',
       pdfPath: null,
       allowancesTotal: 0,

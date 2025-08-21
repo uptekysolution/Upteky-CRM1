@@ -24,10 +24,10 @@ try {
 
 // Check if Next.js app is running
 try {
-    execSync('curl -s http://localhost:3000 > /dev/null', { stdio: 'ignore' });
-    console.log('✅ Next.js app is running on port 3000');
+    execSync('curl -s http://localhost:9002 > /dev/null', { stdio: 'ignore' });
+    console.log('✅ Next.js app is running on port 9002');
 } catch (error) {
-    console.log('⚠️  Next.js app is not running on port 3000');
+    console.log('⚠️  Next.js app is not running on port 9002');
     console.log('   Please start your app with: npm run dev');
     console.log('   Then run this script again');
     process.exit(1);
@@ -39,7 +39,7 @@ console.log('   This will provide an HTTPS URL for high accuracy GPS');
 console.log('   Press Ctrl+C to stop the tunnel\n');
 
 try {
-    execSync('ngrok http 3000', { stdio: 'inherit' });
+    execSync('ngrok http 9002', { stdio: 'inherit' });
 } catch (error) {
     console.log('\n✅ ngrok tunnel stopped');
 }

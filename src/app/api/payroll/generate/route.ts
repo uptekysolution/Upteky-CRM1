@@ -1,37 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
-import { isAdditionalHoliday } from '@/lib/constants/holidays'
+import { computeWorkingDays } from '@/lib/working-days'
 
-// Helper: Calculate working days for a month
-function calculateWorkingDays(year: number, month: number): number {
-  const startDate = new Date(year, month - 1, 1)
-  const endDate = new Date(year, month, 0)
-  let workingDays = 0
-  
-  for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
-    const dateStr = date.toISOString().split('T')[0]
-    if (!isAdditionalHoliday(dateStr)) {
-      workingDays++
-    }
-  }
-  
-  return workingDays
-}
-
-// Helper: Calculate present days for a user in a month
+function mstr(month: number): string { return month.toString().padStart(2, '0') }
+// Helper: Calculate distinct present days for a user in a month
 async function calculatePresentDays(userId: string, year: number, month: number): Promise<number> {
-  const monthStr = month.toString().padStart(2, '0')
-  const startDate = `${year}-${monthStr}-01`
-  const endDate = `${year}-${monthStr}-31`
-  
+  const startDate = `${year}-${mstr(month)}-01`
+  const endDate = `${year}-${mstr(month)}-31`
+  const startOfMonth = new Date(`${startDate}T00:00:00.000Z`)
+  const endOfMonth = new Date(new Date(year, month, 0).toISOString().split('T')[0] + 'T23:59:59.999Z')
+  const uniqueDates = new Set<string>()
   const snapshot = await db.collection('attendance')
     .where('userId', '==', userId)
     .where('date', '>=', startDate)
     .where('date', '<=', endDate)
-    .where('status', '==', 'Present')
     .get()
-  
-  return snapshot.size
+  snapshot.forEach(doc => {
+    const data = doc.data() as any
+    const dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) return
+    if (data.checkIn || data.status === 'Present') {
+      uniqueDates.add(dateVal)
+    }
+  })
+  const snapshot2 = await db.collection('attendanceRecords')
+    .where('userId', '==', userId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get()
+  snapshot2.forEach(doc => {
+    const data = doc.data() as any
+    const dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) return
+    if (data.checkIn || data.clockInTime) {
+      uniqueDates.add(dateVal)
+    }
+  })
+  // Alternate form: attendance with uid field
+  const snapshotUid = await db.collection('attendance')
+    .where('uid', '==', userId)
+    .where('date', '>=', startDate)
+    .where('date', '<=', endDate)
+    .get()
+  snapshotUid.forEach(doc => {
+    const data = doc.data() as any
+    const dateVal = typeof data.date === 'string' ? data.date : null
+    if (!dateVal) return
+    if (data.checkIn || data.status === 'Present') {
+      uniqueDates.add(dateVal)
+    }
+  })
+  const snapUidCreated = await db.collection('attendance')
+    .where('uid', '==', userId)
+    .where('createdAt', '>=', startOfMonth)
+    .where('createdAt', '<=', endOfMonth)
+    .get()
+  snapUidCreated.forEach(doc => {
+    const data = doc.data() as any
+    const ts = data.createdAt?.toDate ? data.createdAt.toDate() : (data.checkIn?.toDate ? data.checkIn.toDate() : null)
+    if (!ts) return
+    const dateVal = ts.toISOString().split('T')[0]
+    if (data.checkIn || data.status === 'Present') uniqueDates.add(dateVal)
+  })
+  return uniqueDates.size
 }
 
 // POST /api/payroll/generate — Admin only
@@ -74,7 +105,7 @@ export async function POST(req: NextRequest) {
       .where('role', 'in', ['employee', 'Employee', 'hr', 'HR', 'team lead', 'Team Lead'])
       .get()
     
-    const totalWorkingDays = calculateWorkingDays(year, month)
+    const { totalWorkingDays } = await computeWorkingDays(year, month)
     const generatedPayrolls = []
     
     // Generate payroll for each employee

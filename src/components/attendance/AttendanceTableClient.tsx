@@ -65,6 +65,8 @@ export function AttendanceTableClient() {
     const [searchTerm, setSearchTerm] = useState('')
     const [usersData, setUsersData] = useState<Record<string, UserData>>({})
     const [officeMap, setOfficeMap] = useState<Record<string, { id: string; name: string }>>({})
+    const [presentDaysMap, setPresentDaysMap] = useState<Record<string, number>>({})
+    const [workingDays, setWorkingDays] = useState<number | null>(null)
     const [offices, setOffices] = useState<Array<{ id: string; name: string }>>([])
 
     // Get current user and their data
@@ -199,6 +201,46 @@ export function AttendanceTableClient() {
 
         return () => unsubscribe()
     }, [user, userData])
+
+    // Fetch monthly summaries for visible users (admin views)
+    useEffect(() => {
+        const run = async () => {
+            if (!user || !userData) return
+            try {
+                const currentMonth = new Date().getMonth() + 1
+                const currentYear = new Date().getFullYear()
+                // Working days once
+                try {
+                    const wdRes = await fetch(`/api/calendar/working-days/${currentMonth}?year=${currentYear}`)
+                    if (wdRes.ok) {
+                        const data = await wdRes.json()
+                        setWorkingDays(data.totalWorkingDays)
+                    }
+                } catch {}
+                // Summaries per user for admins/HR, else just self
+                const targetIds = (userData.role === 'Admin' || userData.role === 'Sub-Admin' || userData.role === 'HR')
+                  ? Array.from(new Set(attendanceRecords.map(r => r.uid).filter(Boolean)))
+                  : [user.uid]
+                const token = await user.getIdToken()
+                const map: Record<string, number> = {}
+                await Promise.all(targetIds.map(async (uid) => {
+                    try {
+                        const res = await fetch(`/api/attendance/${uid}/${currentMonth}/summary?year=${currentYear}`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                        })
+                        if (res.ok) {
+                            const s = await res.json()
+                            map[uid] = s.presentDays
+                        }
+                    } catch {}
+                }))
+                setPresentDaysMap(map)
+            } catch (e) {
+                // ignore
+            }
+        }
+        run()
+    }, [user, userData, attendanceRecords])
 
     // Filter records based on search, role and office filter
     const filteredRecords = attendanceRecords.filter((record) => {
@@ -346,6 +388,7 @@ export function AttendanceTableClient() {
                             <TableRow>
                                 <TableHead>User</TableHead>
                                 <TableHead>Role</TableHead>
+                                <TableHead className="text-center">Present Days</TableHead>
                                 <TableHead>Check In</TableHead>
                                 <TableHead>Check Out</TableHead>
                                 <TableHead>Duration</TableHead>
@@ -377,6 +420,9 @@ export function AttendanceTableClient() {
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant="outline">{record.role}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                {presentDaysMap[record.uid] ?? '-'}{workingDays !== null ? `/${workingDays}` : ''}
                                             </TableCell>
                                             <TableCell>
                                                 <div>

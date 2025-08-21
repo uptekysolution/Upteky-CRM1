@@ -184,6 +184,7 @@ export default function AdminPayrollPage() {
                   <TableHead>Pay Period</TableHead>
                   <TableHead className="text-center">Present Days</TableHead>
                   <TableHead className="text-center">Working Days</TableHead>
+                  <TableHead className="text-center">Attendance Rate</TableHead>
                   <TableHead className="text-right">Base Salary</TableHead>
                   <TableHead className="text-right">Amount Payable</TableHead>
                   <TableHead className="text-center">Status</TableHead>
@@ -197,6 +198,9 @@ export default function AdminPayrollPage() {
                     <TableCell>{getMonthName(payroll.month)} {payroll.year}</TableCell>
                     <TableCell className="text-center">{payroll.presentDays}</TableCell>
                     <TableCell className="text-center">{payroll.totalWorkingDays}</TableCell>
+                    <TableCell className="text-center">
+                      {payroll.totalWorkingDays > 0 ? Math.round((payroll.presentDays / payroll.totalWorkingDays) * 100) : 0}%
+                    </TableCell>
                     <TableCell className="text-right font-mono">
                       {formatCurrency(payroll.salaryAmount)}
                       <span className="text-xs text-muted-foreground ml-1">
