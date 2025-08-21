@@ -210,21 +210,23 @@ export function TimesheetWeekGrid({
 
       {/* Entry Form Dialog */}
       <Dialog open={showEntryForm} onOpenChange={setShowEntryForm}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>
               {editingEntry ? 'Edit Time Entry' : 'Add Time Entry'}
             </DialogTitle>
           </DialogHeader>
-          {selectedDate && (
-            <TimesheetEntryForm
-              entry={editingEntry}
-              projects={projects}
-              date={selectedDate}
-              onSave={handleSaveEntry}
-              onCancel={handleCancelEntry}
-            />
-          )}
+          <div className="overflow-y-auto max-h-[calc(90vh-120px)] pr-2">
+            {selectedDate && (
+              <TimesheetEntryForm
+                entry={editingEntry}
+                projects={projects}
+                date={selectedDate}
+                onSave={handleSaveEntry}
+                onCancel={handleCancelEntry}
+              />
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </>
