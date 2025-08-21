@@ -279,6 +279,137 @@ export class TaskService {
     });
   }
 
+  // Real-time listener for tasks where current user is creator OR assignee
+  // Includes backward-compatible check for legacy field `createdBy`
+  static subscribeToTasksCreatedOrAssigned(userId: string, callback: (tasks: Task[]) => void) {
+    const tasksRef = collection(db, TASKS_COLLECTION)
+
+    const unsubscribeAssignee = onSnapshot(
+      query(tasksRef, where('assigneeId', '==', userId), orderBy('deadline', 'asc')),
+      (assigneeSnap) => {
+        const assigneeTasks = assigneeSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          deadline: d.data().deadline?.toDate() || new Date(),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+          updatedAt: d.data().updatedAt?.toDate() || new Date(),
+        })) as Task[]
+        mergeAndEmit()
+
+        function mergeAndEmit() {
+          // Use latest cached values from both listeners
+          const all = new Map<string, Task>()
+          for (const t of lastAssigneeTasks) all.set(t.id, t)
+          for (const t of lastCreatedByIdTasks) all.set(t.id, t)
+          for (const t of lastLegacyCreatedByTasks) all.set(t.id, t)
+          const merged = Array.from(all.values()).sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
+          callback(merged)
+        }
+
+        lastAssigneeTasks = assigneeTasks
+      }
+    )
+
+    const unsubscribeCreatedById = onSnapshot(
+      query(tasksRef, where('createdById', '==', userId), orderBy('deadline', 'asc')),
+      (createdSnap) => {
+        const createdTasks = createdSnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          deadline: d.data().deadline?.toDate() || new Date(),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+          updatedAt: d.data().updatedAt?.toDate() || new Date(),
+        })) as Task[]
+        mergeAndEmit()
+
+        function mergeAndEmit() {
+          const all = new Map<string, Task>()
+          for (const t of lastAssigneeTasks) all.set(t.id, t)
+          for (const t of lastCreatedByIdTasks) all.set(t.id, t)
+          for (const t of lastLegacyCreatedByTasks) all.set(t.id, t)
+          const merged = Array.from(all.values()).sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
+          callback(merged)
+        }
+
+        lastCreatedByIdTasks = createdTasks
+      }
+    )
+
+    // Legacy support for `createdBy` field before `createdById` existed
+    const unsubscribeLegacyCreatedBy = onSnapshot(
+      query(tasksRef, where('createdBy', '==', userId), orderBy('deadline', 'asc')),
+      (legacySnap) => {
+        const legacyTasks = legacySnap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          deadline: d.data().deadline?.toDate() || new Date(),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+          updatedAt: d.data().updatedAt?.toDate() || new Date(),
+        })) as Task[]
+        mergeAndEmit()
+
+        function mergeAndEmit() {
+          const all = new Map<string, Task>()
+          for (const t of lastAssigneeTasks) all.set(t.id, t)
+          for (const t of lastCreatedByIdTasks) all.set(t.id, t)
+          for (const t of lastLegacyCreatedByTasks) all.set(t.id, t)
+          const merged = Array.from(all.values()).sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
+          callback(merged)
+        }
+
+        lastLegacyCreatedByTasks = legacyTasks
+      }
+    )
+
+    let lastAssigneeTasks: Task[] = []
+    let lastCreatedByIdTasks: Task[] = []
+    let lastLegacyCreatedByTasks: Task[] = []
+
+    return () => {
+      unsubscribeAssignee()
+      unsubscribeCreatedById()
+      unsubscribeLegacyCreatedBy()
+    }
+  }
+
+  // Real-time listener for tasks assigned to any of the provided userIds (chunked 'in' queries)
+  static subscribeToTasksAssignedToUsers(userIds: string[], callback: (tasks: Task[]) => void) {
+    if (!userIds || userIds.length === 0) {
+      // Emit empty and return noop
+      callback([])
+      return () => {}
+    }
+    const tasksRef = collection(db, TASKS_COLLECTION)
+    const chunkSize = 10
+    const chunks: string[][] = []
+    for (let i = 0; i < userIds.length; i += chunkSize) {
+      chunks.push(userIds.slice(i, i + chunkSize))
+    }
+
+    let lastByChunk: Task[][] = new Array(chunks.length).fill([])
+    const unsubs = chunks.map((idsChunk, idx) => onSnapshot(
+      // Avoid orderBy to minimize index requirements; we'll sort locally
+      query(tasksRef, where('assigneeId', 'in', idsChunk)),
+      (snap) => {
+        const tasks = snap.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+          deadline: d.data().deadline?.toDate() || new Date(),
+          createdAt: d.data().createdAt?.toDate() || new Date(),
+          updatedAt: d.data().updatedAt?.toDate() || new Date(),
+        })) as Task[]
+        lastByChunk[idx] = tasks
+        const merged = ([] as Task[]).concat(...lastByChunk)
+        // De-dup just in case same id appears in different chunks
+        const uniq = Array.from(new Map(merged.map(t => [t.id, t])).values())
+        uniq.sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
+        callback(uniq)
+      }
+    ))
+
+    return () => { unsubs.forEach(u => u()) }
+  }
+
   // Real-time listener for tasks belonging to a client's projects
   static subscribeToTasksByClient(clientId: string, callback: (tasks: Task[]) => void) {
     // Fallback to polling via non-realtime API for simplicity; could be optimized by composite indexes

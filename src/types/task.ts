@@ -9,6 +9,10 @@ export interface Task {
   assigneeName: string;
   assigneeEmail: string;
   createdBy: string;
+  createdById?: string;
+  createdByRole?: string;
+  assignedById?: string;
+  assignedByRole?: string;
   createdAt: Date;
   updatedAt: Date;
   progress: number;

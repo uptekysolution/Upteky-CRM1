@@ -31,6 +31,7 @@ export default function EmployeeTasksPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('tasks');
   const [currentUser, setCurrentUser] = useState<{ uid: string; name: string; email: string; role?: string } | null>(null);
+  const [taskView, setTaskView] = useState<'my' | 'team'>('my');
   
   // Modal states
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -51,11 +52,13 @@ export default function EmployeeTasksPage() {
           // Get user details from Firestore
           const userDoc = await UserService.getUserById(user.uid);
           if (userDoc) {
+            const anyDoc: any = userDoc as any;
+            const displayName = anyDoc.name || [anyDoc.firstName, anyDoc.lastName].filter(Boolean).join(' ') || 'Unknown User';
             setCurrentUser({
               uid: user.uid,
-              name: userDoc.name || userDoc.firstName + ' ' + userDoc.lastName || 'Unknown User',
+              name: displayName,
               email: user.email || '',
-              role: userDoc.role,
+              role: (userDoc as any).role,
             });
           } else {
             setCurrentUser({
@@ -112,11 +115,21 @@ export default function EmployeeTasksPage() {
       setEmployees(employeesData);
       setUsers(usersData);
       
-      // Set up real-time listeners for employee's tasks and meetings
-      const unsubscribeTasks = TaskService.subscribeToTasksByAssignee(currentUser.uid, (tasksData) => {
-        console.log('Tasks updated:', tasksData);
-        setTasks(tasksData);
-      });
+      // Set up real-time listeners for tasks and meetings
+      let unsubscribeTasks: () => void = () => {};
+      const roleLower = (currentUser.role || '').toLowerCase();
+      const isLead = roleLower === 'admin' || roleLower === 'manager' || roleLower === 'team lead';
+      if (isLead && taskView === 'my') {
+        unsubscribeTasks = TaskService.subscribeToTasksCreatedOrAssigned(currentUser.uid, (tasksData) => {
+          console.log('Tasks (created or assigned) updated:', tasksData);
+          setTasks(tasksData);
+        });
+      } else {
+        unsubscribeTasks = TaskService.subscribeToTasksByAssignee(currentUser.uid, (tasksData) => {
+          console.log('Tasks updated:', tasksData);
+          setTasks(tasksData);
+        });
+      }
       
       const unsubscribeMeetings = MeetingService.subscribeToMeetingsByParticipant(currentUser.uid, (meetingsData) => {
         console.log('Meetings updated:', meetingsData);
@@ -139,6 +152,47 @@ export default function EmployeeTasksPage() {
       setIsLoading(false);
     }
   };
+
+  // Resubscribe to task view when toggled for leads
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const roleLower = (currentUser.role || '').toLowerCase();
+    const isLead = roleLower === 'admin' || roleLower === 'manager' || roleLower === 'team lead';
+    if (!isLead) return; // employees only see assigned
+    let unsubscribe: () => void = () => {};
+    if (taskView === 'my') {
+      unsubscribe = TaskService.subscribeToTasksCreatedOrAssigned(currentUser.uid, (tasksData) => setTasks(tasksData));
+    } else {
+      // My Team: subscribe to tasks assigned to TL's team members
+      void (async () => {
+        try {
+          const { collection, getDocs, query, where } = await import('firebase/firestore');
+          const { db } = await import('@/lib/firebase');
+          // Teams led by this TL
+          const leadSnap = await getDocs(query(collection(db, 'teamMembers'), where('userId', '==', currentUser.uid), where('role', '==', 'lead')));
+          const leadTeamIds = leadSnap.docs.map((d: any) => d.data().teamId).filter(Boolean);
+          if (leadTeamIds.length === 0) {
+            unsubscribe = TaskService.subscribeToTasksByAssignee(currentUser.uid, (tasksData) => setTasks(tasksData));
+            return;
+          }
+          // Members of these teams
+          const memberIdsSet = new Set<string>();
+          for (const teamId of leadTeamIds) {
+            const membersSnap = await getDocs(query(collection(db, 'teamMembers'), where('teamId', '==', teamId)));
+            membersSnap.docs.forEach((doc: any) => {
+              const uid = doc.data().userId;
+              if (uid) memberIdsSet.add(uid);
+            });
+          }
+          const memberIds = Array.from(memberIdsSet);
+          unsubscribe = TaskService.subscribeToTasksAssignedToUsers(memberIds, (tasksData) => setTasks(tasksData));
+        } catch (e) {
+          console.error(e);
+        }
+      })();
+    }
+    return () => unsubscribe();
+  }, [taskView, currentUser?.uid, currentUser?.role]);
 
   const handleRefreshUsers = async () => {
     try {
@@ -189,7 +243,7 @@ export default function EmployeeTasksPage() {
     setFilteredTasks(filtered);
   };
 
-  const isAdminOrLead = (currentUser?.role || '').toLowerCase() === 'admin' || (currentUser?.role || '').toLowerCase() === 'manager' || (currentUser?.role || '').toLowerCase() === 'team lead';
+  const isAdminOrLead = (currentUser?.role || '').toLowerCase() === 'admin' || (currentUser?.role || '').toLowerCase() === 'team lead';
 
   const handleNewTask = (date?: Date) => {
     if (!isAdminOrLead) return; // UI guard
@@ -474,12 +528,30 @@ export default function EmployeeTasksPage() {
 
         {/* Tasks Tab */}
         <TabsContent value="tasks" className="space-y-4">
-          <TaskFiltersComponent
-            filters={taskFilters}
-            onFiltersChange={setTaskFilters}
-            employees={employees}
-            onClearFilters={clearTaskFilters}
-          />
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <TaskFiltersComponent
+              filters={taskFilters}
+              onFiltersChange={setTaskFilters}
+              employees={employees}
+              onClearFilters={clearTaskFilters}
+            />
+            {isAdminOrLead && (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={taskView === 'my' ? 'default' : 'outline'}
+                  onClick={() => setTaskView('my')}
+                >
+                  My Tasks
+                </Button>
+                <Button
+                  variant={taskView === 'team' ? 'default' : 'outline'}
+                  onClick={() => setTaskView('team')}
+                >
+                  My Team
+                </Button>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {Object.values(TaskStatus).map(status => {
@@ -503,7 +575,7 @@ export default function EmployeeTasksPage() {
                           onDelete={handleDeleteTask}
                           onStatusChange={handleTaskStatusChange}
                           onProgressChange={handleTaskProgressChange}
-                          isAdmin={false}
+                          isAdmin={isAdminOrLead}
                         />
                       ))
                     ) : (

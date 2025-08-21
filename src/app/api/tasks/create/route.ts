@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 
-function normalizeRole(role?: string): string {
+function normalizeRoleLower(role?: string): string {
   return (role || '').toLowerCase()
 }
 
-const CREATOR_ROLES = new Set([
-  'admin',
-  'team lead',
-  'manager',
-  'sub-admin',
-])
+function toCreatorRoleUpper(roleLower: string): 'ADMIN' | 'TEAM_LEAD' | 'UNKNOWN' {
+  if (roleLower === 'admin') return 'ADMIN'
+  if (roleLower === 'team lead' || roleLower === 'team_lead' || roleLower === 'teamlead') return 'TEAM_LEAD'
+  return 'UNKNOWN'
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,8 +30,10 @@ export async function POST(req: NextRequest) {
     if (!userDoc.exists) {
       return NextResponse.json({ message: 'User not found' }, { status: 404 })
     }
-    const role = normalizeRole(userDoc.data()?.role)
-    if (!CREATOR_ROLES.has(role)) {
+    const roleLower = normalizeRoleLower(userDoc.data()?.role)
+    const creatorRole = toCreatorRoleUpper(roleLower)
+    // Only ADMIN and TEAM_LEAD may create tasks
+    if (creatorRole === 'UNKNOWN') {
       return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
     }
 
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
       description,
       deadline,
       priority,
-      status,
+      // status is ignored server-side; defaulted to "To Do"
       assigneeId,
       assigneeName,
       assigneeEmail,
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
       projectId,
     } = body || {}
 
-    if (!title || !assigneeId || !deadline || !priority || !status) {
+    if (!title || !assigneeId || !deadline || !priority) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 })
     }
 
@@ -63,11 +64,15 @@ export async function POST(req: NextRequest) {
       description: String(description || ''),
       deadline: new Date(deadline),
       priority: String(priority),
-      status: String(status),
+      status: 'To Do',
       assigneeId: String(assigneeId),
       assigneeName: String(assigneeName || ''),
       assigneeEmail: String(assigneeEmail || ''),
       createdBy: decoded.uid,
+      createdById: decoded.uid,
+      createdByRole: creatorRole,
+      assignedById: decoded.uid,
+      assignedByRole: creatorRole,
       createdAt: now,
       updatedAt: now,
       progress: Number(progress) || 0,
@@ -78,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ref = await db.collection('tasks').add(taskData)
-    return NextResponse.json({ id: ref.id, message: 'Task created' }, { status: 201 })
+    return NextResponse.json({ id: ref.id, ...taskData }, { status: 201 })
   } catch (error) {
     console.error('Error creating task:', error)
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 })

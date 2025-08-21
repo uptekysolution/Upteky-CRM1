@@ -1,13 +1,26 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { db, auth } from '@/lib/firebase-admin';
 
 // POST /api/internal/crm/tickets/{ticketId}/convert-to-task - Convert ticket to a task
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ticketId: string }> }) {
     const { ticketId } = await params;
-    // In a real app, add permission checks and get authorId from auth session
-    const authorId = 'system-process-id'; // System action
-    const authorName = 'Upteky Central System'; 
+    // Require authentication; set creator/assigner fields from current user
+    const authHeader = req.headers.get('authorization') || ''
+    const bearer = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : ''
+    let authorId = 'system-process-id'
+    let authorName = 'Upteky Central System'
+    let creatorRole: 'ADMIN' | 'TEAM_LEAD' | 'UNKNOWN' = 'UNKNOWN'
+    if (bearer) {
+      try {
+        const decoded = await auth.verifyIdToken(bearer)
+        authorId = decoded.uid
+        const userDoc = await db.collection('users').doc(decoded.uid).get()
+        const roleLower = (userDoc.data()?.role || '').toLowerCase()
+        authorName = userDoc.data()?.name || authorName
+        creatorRole = roleLower === 'admin' ? 'ADMIN' : (roleLower === 'team lead' ? 'TEAM_LEAD' : 'UNKNOWN')
+      } catch {}
+    }
 
     try {
         const ticketRef = db.collection('tickets').doc(ticketId);
@@ -36,9 +49,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tic
             status: 'To Do',
             priority: 'Medium',
             progress: 0,
-            assignee: ticketData.assignedToUserId || null,
+            assigneeId: ticketData.assignedToUserId || null,
+            assigneeName: '',
+            assigneeEmail: '',
+            createdBy: authorId,
+            createdById: authorId,
+            createdByRole: creatorRole,
+            assignedById: authorId,
+            assignedByRole: creatorRole,
             linkedTicketId: ticketId,
             createdAt: new Date(),
+            updatedAt: new Date(),
         });
 
         // 2. Update the original ticket with the new task ID

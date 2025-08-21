@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { db, auth } from '@/lib/firebase-admin';
 
 // GET /api/internal/tasks - List all tasks
 export async function GET(req: NextRequest) {
@@ -16,21 +16,48 @@ export async function GET(req: NextRequest) {
 // POST /api/internal/tasks - Create a new task
 export async function POST(req: NextRequest) {
   try {
+    // Enforce auth and role (ADMIN or TEAM_LEAD)
+    const authHeader = req.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ message: 'Authorization header required' }, { status: 401 })
+    }
+    const token = authHeader.split('Bearer ')[1]
+    let decoded
+    try {
+      decoded = await auth.verifyIdToken(token)
+    } catch {
+      return NextResponse.json({ message: 'Invalid token' }, { status: 401 })
+    }
+
+    const userDoc = await db.collection('users').doc(decoded.uid).get()
+    if (!userDoc.exists) return NextResponse.json({ message: 'User not found' }, { status: 404 })
+    const roleLower = (userDoc.data()?.role || '').toLowerCase()
+    const creatorRole = roleLower === 'admin' ? 'ADMIN' : (roleLower === 'team lead' ? 'TEAM_LEAD' : 'UNKNOWN')
+    if (creatorRole === 'UNKNOWN') return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+
     const body = await req.json();
-    const { title, assignee, assigneeInitials, dueDate, status, progress, priority } = body;
-    if (!title || !assignee || !dueDate || !status || !priority) {
+    const { title, assigneeId, assigneeName, assigneeEmail, dueDate, priority, progress } = body;
+    if (!title || !assigneeId || !dueDate || !priority) {
       return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
     }
+    const now = new Date()
     const newTask = {
       title,
-      assignee,
-      assigneeInitials: assigneeInitials || '',
-      dueDate,
-      status,
-      progress: progress ?? 0,
-      priority,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      description: String(body.description || ''),
+      assigneeId: String(assigneeId),
+      assigneeName: String(assigneeName || ''),
+      assigneeEmail: String(assigneeEmail || ''),
+      deadline: new Date(dueDate),
+      priority: String(priority),
+      status: 'To Do',
+      progress: Number(progress) || 0,
+      createdBy: decoded.uid,
+      createdById: decoded.uid,
+      createdByRole: creatorRole,
+      assignedById: decoded.uid,
+      assignedByRole: creatorRole,
+      createdAt: now,
+      updatedAt: now,
     };
     const docRef = await db.collection('tasks').add(newTask);
     return NextResponse.json({ id: docRef.id, ...newTask }, { status: 201 });

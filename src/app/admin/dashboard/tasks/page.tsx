@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Calendar, List, Filter, Users, Clock, CheckSquare } from "lucide-react";
 import { Task, TaskStatus, TaskPriority, TaskFilters, Meeting, MeetingStatus } from '@/types/task';
 import { TaskService } from '@/lib/task-service';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { MeetingService } from '@/lib/meeting-service';
 import { UserService, User } from '@/lib/user-service';
@@ -29,6 +30,8 @@ export default function AdminTasksPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('tasks');
+  const [taskView, setTaskView] = useState<'my' | 'all'>('my');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Modal states
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -44,7 +47,13 @@ export default function AdminTasksPage() {
 
   // Load initial data
   useEffect(() => {
-    loadInitialData();
+    const authUnsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUserId(user.uid);
+        loadInitialData(user.uid);
+      }
+    })
+    return () => authUnsub()
   }, []);
 
   // Apply filters when tasks or filters change
@@ -52,7 +61,7 @@ export default function AdminTasksPage() {
     applyTaskFilters();
   }, [tasks, taskFilters]);
 
-  const loadInitialData = async () => {
+  const loadInitialData = async (currentUserId: string) => {
     try {
       setIsLoading(true);
       console.log('AdminTasksPage - Loading initial data...');
@@ -69,18 +78,13 @@ export default function AdminTasksPage() {
       setEmployees(employeesData);
       setUsers(usersData);
       
-      // Set up real-time listeners
-      const unsubscribeTasks = TaskService.subscribeToTasks((tasksData) => {
-        setTasks(tasksData);
-      });
-      
+      // Set up real-time listeners for meetings
       const unsubscribeMeetings = MeetingService.subscribeToMeetings((meetingsData) => {
         setMeetings(meetingsData);
       });
       
       // Cleanup function
       return () => {
-        unsubscribeTasks();
         unsubscribeMeetings();
       };
     } catch (error) {
@@ -94,6 +98,18 @@ export default function AdminTasksPage() {
       setIsLoading(false);
     }
   };
+
+  // Subscribe to tasks based on current view
+  useEffect(() => {
+    if (!currentUserId) return;
+    let unsubscribe: () => void = () => {};
+    if (taskView === 'my') {
+      unsubscribe = TaskService.subscribeToTasksCreatedOrAssigned(currentUserId, (tasksData) => setTasks(tasksData));
+    } else {
+      unsubscribe = TaskService.subscribeToTasks((tasksData) => setTasks(tasksData));
+    }
+    return () => unsubscribe();
+  }, [currentUserId, taskView]);
 
   const handleTestUserCreation = async () => {
     try {
@@ -410,12 +426,28 @@ export default function AdminTasksPage() {
 
         {/* Tasks Tab */}
         <TabsContent value="tasks" className="space-y-4">
-          <TaskFiltersComponent
-            filters={taskFilters}
-            onFiltersChange={setTaskFilters}
-            employees={employees}
-            onClearFilters={clearTaskFilters}
-          />
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <TaskFiltersComponent
+              filters={taskFilters}
+              onFiltersChange={setTaskFilters}
+              employees={employees}
+              onClearFilters={clearTaskFilters}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant={taskView === 'my' ? 'default' : 'outline'}
+                onClick={() => setTaskView('my')}
+              >
+                My Tasks
+              </Button>
+              <Button
+                variant={taskView === 'all' ? 'default' : 'outline'}
+                onClick={() => setTaskView('all')}
+              >
+                All
+              </Button>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {Object.values(TaskStatus).map(status => {

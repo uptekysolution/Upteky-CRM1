@@ -255,10 +255,7 @@ export function TaskModal({ isOpen, onClose, task, employees, onSuccess, initial
 
             <div className="space-y-2">
               <Label>Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value) => handleInputChange('status', value)}
-              >
+              <Select value={formData.status} onValueChange={(value) => handleInputChange('status', value)} disabled>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -270,6 +267,7 @@ export function TaskModal({ isOpen, onClose, task, employees, onSuccess, initial
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">New tasks start as "To Do".</p>
             </div>
           </div>
 

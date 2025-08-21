@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebase-admin';
+import { db, auth } from '@/lib/firebase-admin';
 
 // PUT /api/internal/tasks/[taskId] - Update a task
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
@@ -17,6 +17,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ task
     if (status !== undefined) updateData.status = status;
     if (progress !== undefined) updateData.progress = progress;
     if (priority !== undefined) updateData.priority = priority;
+    // If status is being updated by a non-employee, stamp assignedBy fields
+    if (status !== undefined) {
+      const authHeader = req.headers.get('authorization') || ''
+      const bearer = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : ''
+      if (bearer) {
+        try {
+          const decoded = await auth.verifyIdToken(bearer)
+          const userDoc = await db.collection('users').doc(decoded.uid).get()
+          const roleLower = (userDoc.data()?.role || '').toLowerCase()
+          if (roleLower !== 'employee') {
+            updateData.assignedById = decoded.uid
+            updateData.assignedByRole = roleLower === 'admin' ? 'ADMIN' : (roleLower === 'team lead' ? 'TEAM_LEAD' : 'UNKNOWN')
+          }
+        } catch {}
+      }
+    }
     await db.collection('tasks').doc(taskId).update(updateData);
     const updatedDoc = await db.collection('tasks').doc(taskId).get();
     return NextResponse.json({ id: taskId, ...updatedDoc.data() });
