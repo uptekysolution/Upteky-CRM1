@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
   },
   // Avoid Edge runtime issues by not marking Node-only packages as externals globally
   // serverExternalPackages: ['pdfkit-next'],
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
   images: {
     remotePatterns: [
       {
@@ -19,6 +22,12 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
+    unoptimized: false,
+    formats: ['image/webp', 'image/avif'],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
   webpack: (config, { isServer }) => {
     // Handle fontkit-next data files

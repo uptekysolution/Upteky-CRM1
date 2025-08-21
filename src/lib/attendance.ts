@@ -26,6 +26,7 @@ interface CheckInParams {
     withinGeofence: boolean
     reason?: string
     teamId?: string
+    officeId?: string
 }
 
 interface CheckOutParams {
@@ -43,7 +44,8 @@ export async function checkIn({
     location,
     withinGeofence,
     reason,
-    teamId
+    teamId,
+    officeId
 }: CheckInParams): Promise<string> {
     try {
         const attendanceData = {
@@ -56,6 +58,8 @@ export async function checkIn({
             checkOutLocation: null,
             withinGeofence,
             reason: withinGeofence ? null : reason || null,
+            officeId: officeId || null,
+            status: 'Checked In',
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         }
@@ -99,6 +103,7 @@ export async function checkOut(uid: string, {
         const updateData: any = {
             checkOut: serverTimestamp(),
             checkOutLocation: location,
+            status: 'Checked Out',
             updatedAt: serverTimestamp()
         }
 

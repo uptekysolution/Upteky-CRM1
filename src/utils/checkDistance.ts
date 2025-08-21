@@ -1,104 +1,122 @@
 /**
- * Calculate distance between two points using Haversine formula
- * @param lat1 Latitude of first point
- * @param lon1 Longitude of first point
- * @param lat2 Latitude of second point
- * @param lon2 Longitude of second point
+ * Calculate the distance between two coordinates using the Haversine formula
+ * @param lat1 Latitude of first point (in degrees)
+ * @param lon1 Longitude of first point (in degrees)
+ * @param lat2 Latitude of second point (in degrees)
+ * @param lon2 Longitude of second point (in degrees)
  * @returns Distance in meters
  */
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371000 // Earth's radius in meters
-    const dLat = (lat2 - lat1) * Math.PI / 180
-    const dLon = (lon2 - lon1) * Math.PI / 180
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    return R * c
-}
-
-interface DistanceCheckResult {
-    distanceM: number
-    withinGeofence: boolean
-    officeName: string
-}
-
-// Office locations
-const OFFICE_LOCATIONS = {
-    'office-1': {
-        lat: 22.997473,
-        lon: 72.498009,
-        name: 'Office 1'
-    },
-    'office-2': {
-        lat: 23.008349,
-        lon: 72.506866,
-        name: 'Office 2'
-    }
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    // Earth's radius in meters
+    const R = 6371000;
+    
+    // Convert degrees to radians
+    const lat1Rad = lat1 * Math.PI / 180;
+    const lon1Rad = lon1 * Math.PI / 180;
+    const lat2Rad = lat2 * Math.PI / 180;
+    const lon2Rad = lon2 * Math.PI / 180;
+    
+    // Differences in coordinates
+    const dLat = lat2Rad - lat1Rad;
+    const dLon = lon2Rad - lon1Rad;
+    
+    // Haversine formula
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1Rad) * Math.cos(lat2Rad) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    
+    // Distance in meters
+    const distance = R * c;
+    
+    return distance;
 }
 
 /**
- * Check if user location is within allowed geofence for any office
- * @param userLat User's latitude
- * @param userLon User's longitude
- * @param allowedM Allowed radius in meters (default: 500)
- * @returns Object with distance, whether user is within geofence, and office name
+ * Test function to verify distance calculation
  */
-export function checkDistance(
-    userLat: number,
-    userLon: number,
-    allowedM: number = 500
-): DistanceCheckResult {
-    let closestDistance = Infinity
-    let closestOffice = ''
-    let closestOfficeName = ''
-
-    // Check distance to all offices
-    for (const [officeKey, office] of Object.entries(OFFICE_LOCATIONS)) {
-        const distanceM = haversineDistance(userLat, userLon, office.lat, office.lon)
-        
-        if (distanceM < closestDistance) {
-            closestDistance = distanceM
-            closestOffice = officeKey
-            closestOfficeName = office.name
-        }
-    }
-
-    const withinGeofence = closestDistance <= allowedM
-
-    return {
-        distanceM: Math.round(closestDistance * 100) / 100, // Round to 2 decimal places
-        withinGeofence,
-        officeName: closestOfficeName
-    }
+export function testDistanceCalculation() {
+    console.log('🧪 Testing distance calculation...');
+    
+    // Test 1: Same coordinates (should be ~0m)
+    const test1 = calculateDistance(22.99401750936968, 72.49933952072686, 22.99401750936968, 72.49933952072686);
+    console.log('Test 1 - Same coordinates:', {
+        coordinates: { lat: 22.99401750936968, lon: 72.49933952072686 },
+        distance: `${test1.toFixed(2)}m`,
+        expected: '~0m'
+    });
+    
+    // Test 2: Very close coordinates (should be small distance)
+    const test2 = calculateDistance(22.99401750936968, 72.49933952072686, 22.99401750936968, 72.49933952072687);
+    console.log('Test 2 - Very close coordinates:', {
+        distance: `${test2.toFixed(2)}m`,
+        expected: 'very small distance'
+    });
+    
+    // Test 3: Distance between the two offices
+    const test3 = calculateDistance(22.99401750936968, 72.49933952072686, 23.008348, 72.506866);
+    console.log('Test 3 - Between offices:', {
+        office1: { lat: 22.99401750936968, lon: 72.49933952072686 },
+        office2: { lat: 23.008348, lon: 72.506866 },
+        distance: `${test3.toFixed(2)}m (${(test3/1000).toFixed(2)}km)`
+    });
+    
+    // Test 4: Known distance calculation (Mumbai to Delhi ~1150km)
+    const test4 = calculateDistance(19.0760, 72.8777, 28.7041, 77.1025);
+    console.log('Test 4 - Mumbai to Delhi:', {
+        distance: `${test4.toFixed(0)}m (${(test4/1000).toFixed(0)}km)`,
+        expected: '~1150km'
+    });
+    
+    console.log('✅ Distance calculation tests completed');
 }
 
 /**
- * Check distance to a specific office
+ * Check distance to coordinates and determine if within geofence
  * @param userLat User's latitude
  * @param userLon User's longitude
- * @param officeKey Office key ('office-1' or 'office-2')
- * @param allowedM Allowed radius in meters (default: 500)
- * @returns Object with distance, whether user is within geofence, and office name
+ * @param officeLat Office latitude
+ * @param officeLon Office longitude
+ * @param officeName Name of the office
+ * @param thresholdM Distance threshold in meters
+ * @returns Object with distance info and geofence status
  */
-export function checkDistanceToOffice(
+export function checkDistanceToCoords(
     userLat: number,
     userLon: number,
-    officeKey: 'office-1' | 'office-2',
-    allowedM: number = 500
-): DistanceCheckResult {
-    const office = OFFICE_LOCATIONS[officeKey]
-    if (!office) {
-        throw new Error(`Invalid office key: ${officeKey}`)
+    officeLat: number,
+    officeLon: number,
+    officeName: string,
+    thresholdM: number = 50
+): { distanceM: number; withinGeofence: boolean; officeName: string } {
+    // Validate input coordinates
+    if (isNaN(userLat) || isNaN(userLon) || isNaN(officeLat) || isNaN(officeLon)) {
+        console.error('Invalid coordinates provided:', { userLat, userLon, officeLat, officeLon });
+        return {
+            distanceM: 0,
+            withinGeofence: false,
+            officeName
+        };
     }
 
-    const distanceM = haversineDistance(userLat, userLon, office.lat, office.lon)
-    const withinGeofence = distanceM <= allowedM
+    const distanceM = calculateDistance(userLat, userLon, officeLat, officeLon);
+    const withinGeofence = distanceM <= thresholdM;
+
+    // Debug logging
+    console.log('Distance calculation:', {
+        userLocation: { lat: userLat, lon: userLon },
+        officeLocation: { lat: officeLat, lon: officeLon },
+        officeName,
+        calculatedDistanceM: distanceM,
+        roundedDistanceM: Math.round(distanceM),
+        withinGeofence,
+        thresholdM
+    });
 
     return {
-        distanceM: Math.round(distanceM * 100) / 100, // Round to 2 decimal places
+        distanceM: Math.round(distanceM),
         withinGeofence,
-        officeName: office.name
-    }
+        officeName
+    };
 }

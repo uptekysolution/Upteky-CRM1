@@ -20,12 +20,14 @@ import { auth } from '@/lib/firebase'
 import { onAuthStateChanged, User } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { MapPin, Clock, User as UserIcon, Building } from 'lucide-react'
+import { getOfficeMap, getOffices } from '@/lib/office-service'
 
 interface AttendanceRecord {
     id: string
     uid: string
     role: string
     teamId?: string
+    officeId?: string | null
     checkIn: Timestamp
     checkOut?: Timestamp
     checkInLocation: {
@@ -59,8 +61,11 @@ export function AttendanceTableClient() {
     const [user, setUser] = useState<User | null>(null)
     const [userData, setUserData] = useState<UserData | null>(null)
     const [filterRole, setFilterRole] = useState<string>('all')
+    const [filterOfficeId, setFilterOfficeId] = useState<string>('all')
     const [searchTerm, setSearchTerm] = useState('')
     const [usersData, setUsersData] = useState<Record<string, UserData>>({})
+    const [officeMap, setOfficeMap] = useState<Record<string, { id: string; name: string }>>({})
+    const [offices, setOffices] = useState<Array<{ id: string; name: string }>>([])
 
     // Get current user and their data
     useEffect(() => {
@@ -90,6 +95,18 @@ export function AttendanceTableClient() {
         return () => unsubscribe()
     }, [])
 
+    // Load offices list for filters
+    useEffect(() => {
+        (async () => {
+            try {
+                const list = await getOffices()
+                setOffices(list.map(o => ({ id: o.id, name: o.name })))
+            } catch (e) {
+                console.error('Failed to load offices', e)
+            }
+        })()
+    }, [])
+
     // Subscribe to attendance records based on user role
     useEffect(() => {
         if (!user || !userData) return
@@ -100,14 +117,12 @@ export function AttendanceTableClient() {
         if (userData.role === 'Admin' || userData.role === 'Sub-Admin') {
             // Admin/Sub-Admin can see all records
         } else if (userData.role === 'HR') {
-            // HR can see all except Admin/Sub-Admin
             q = query(
                 collection(db, 'attendance'),
                 where('role', 'in', ['Employee', 'HR', 'Team Lead', 'Business Development']),
                 orderBy('createdAt', 'desc')
             )
         } else if (userData.role === 'Team Lead') {
-            // Team Lead can see their team members
             if (userData.teamId) {
                 q = query(
                     collection(db, 'attendance'),
@@ -115,7 +130,6 @@ export function AttendanceTableClient() {
                     orderBy('createdAt', 'desc')
                 )
             } else {
-                // If no team, only show own records
                 q = query(
                     collection(db, 'attendance'),
                     where('uid', '==', user.uid),
@@ -123,7 +137,6 @@ export function AttendanceTableClient() {
                 )
             }
         } else {
-            // Employee can only see own records
             q = query(
                 collection(db, 'attendance'),
                 where('uid', '==', user.uid),
@@ -134,20 +147,21 @@ export function AttendanceTableClient() {
         const unsubscribe = onSnapshot(q, async (snapshot) => {
             const records: AttendanceRecord[] = []
             const userIds = new Set<string>()
+            const officeIds = new Set<string>()
 
             snapshot.forEach((doc) => {
                 const data = doc.data() as AttendanceRecord
                 if (data && data.uid) {
                     records.push({ ...data, id: doc.id })
                     userIds.add(data.uid)
+                    if ((data as any).officeId) officeIds.add((data as any).officeId as string)
                 }
             })
 
             // Fetch user data for all records
             const usersDataMap: Record<string, UserData> = {}
             for (const uid of userIds) {
-                if (!uid) continue // Skip if uid is undefined or null
-
+                if (!uid) continue
                 try {
                     const userDoc = await getDoc(doc(db, 'users', uid))
                     if (userDoc.exists()) {
@@ -158,22 +172,8 @@ export function AttendanceTableClient() {
                             name: userData?.name || userData?.email || 'Unknown',
                             email: userData?.email || ''
                         }
-                        
-                        // Debug logging for user data
-                        if (process.env.NODE_ENV === 'development') {
-                            console.log('User data for', uid, ':', {
-                                name: userData?.name,
-                                email: userData?.email,
-                                role: userData?.role,
-                                fullUserData: userData
-                            })
-                        }
                     } else {
-                        // Set default data if user document doesn't exist
                         usersDataMap[uid] = { role: 'Employee', name: 'Unknown', email: '' }
-                        if (process.env.NODE_ENV === 'development') {
-                            console.log('No user document found for', uid)
-                        }
                     }
                 } catch (error) {
                     console.error('Error fetching user data for', uid, error)
@@ -182,6 +182,14 @@ export function AttendanceTableClient() {
             }
 
             setUsersData(usersDataMap)
+            if (officeIds.size > 0) {
+                try {
+                    const map = await getOfficeMap(Array.from(officeIds))
+                    setOfficeMap(map)
+                } catch (e) {
+                    console.error('Failed to load offices', e)
+                }
+            }
             setAttendanceRecords(records)
             setLoading(false)
         }, (error) => {
@@ -192,48 +200,26 @@ export function AttendanceTableClient() {
         return () => unsubscribe()
     }, [user, userData])
 
-    // Filter records based on search and role filter
+    // Filter records based on search, role and office filter
     const filteredRecords = attendanceRecords.filter((record) => {
-        if (!record || !record.uid) return false // Skip records without uid
+        if (!record || !record.uid) return false
 
         const userName = usersData[record.uid]?.name || 'Unknown'
         const userEmail = usersData[record.uid]?.email || ''
-
         const safeSearchTerm = searchTerm.trim().toLowerCase()
-        
-        // If no search term, show all records
-        if (safeSearchTerm === '') {
-            const matchesRole = filterRole === 'all' || record.role === filterRole
-            return matchesRole
-        }
 
-        // Check if search term matches any of the searchable fields
-        const matchesSearch = 
+        const matchesSearch = safeSearchTerm === '' ||
             (userName && userName.toLowerCase().includes(safeSearchTerm)) ||
             (userEmail && userEmail.toLowerCase().includes(safeSearchTerm)) ||
             (record.uid && record.uid.toLowerCase().includes(safeSearchTerm)) ||
             (record.role && record.role.toLowerCase().includes(safeSearchTerm)) ||
-            // Check if search term matches any part of the name (for partial name searches)
             (userName && userName.toLowerCase().split(' ').some(part => part.includes(safeSearchTerm))) ||
-            // Fallback: if user data is not available, try to match by uid directly
             (userName === 'Unknown' && record.uid && record.uid.toLowerCase().includes(safeSearchTerm))
 
         const matchesRole = filterRole === 'all' || record.role === filterRole
+        const matchesOffice = filterOfficeId === 'all' || (record.officeId || '') === filterOfficeId
 
-        // Debug logging for search
-        if (process.env.NODE_ENV === 'development' && safeSearchTerm !== '') {
-            console.log('Search debug for record:', {
-                uid: record.uid,
-                userName,
-                userEmail,
-                role: record.role,
-                searchTerm: safeSearchTerm,
-                matchesSearch,
-                matchesRole
-            })
-        }
-
-        return matchesSearch && matchesRole
+        return matchesSearch && matchesRole && matchesOffice
     })
 
     const formatTime = (timestamp: Timestamp) => {
@@ -251,56 +237,36 @@ export function AttendanceTableClient() {
         if (!checkIn) return 'N/A'
 
         try {
-            // Validate timestamps
             if (!checkIn.toDate || !checkOut.toDate) {
                 return 'Invalid'
             }
 
             const checkInDate = checkIn.toDate()
             const checkOutDate = checkOut.toDate()
-            
-            // Check if dates are valid
             if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
                 return 'Invalid'
             }
 
-            const checkInTime = checkInDate.getTime()
-            const checkOutTime = checkOutDate.getTime()
-            const duration = checkOutTime - checkInTime
-            
-            // Handle negative duration (check-out before check-in)
-            if (duration < 0) {
-                return 'Invalid'
-            }
-            
+            const duration = checkOutDate.getTime() - checkInDate.getTime()
+            if (duration < 0) return 'Invalid'
 
-            
             const hours = Math.floor(duration / (1000 * 60 * 60))
             const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60))
-
-            // Handle very short durations (less than 1 minute)
-            if (duration < 60000) { // Less than 1 minute
+            if (duration < 60000) {
                 const seconds = Math.floor(duration / 1000)
                 return `${seconds}s`
             }
 
             return `${hours}h ${minutes}m`
         } catch (error) {
-            // Fallback calculation using seconds since epoch
             try {
-                const checkInSeconds = checkIn.seconds
-                const checkOutSeconds = checkOut.seconds
+                const checkInSeconds = (checkIn as any).seconds
+                const checkOutSeconds = (checkOut as any).seconds
                 const durationSeconds = checkOutSeconds - checkInSeconds
-                
                 if (durationSeconds < 0) return 'Invalid'
-                
                 const hours = Math.floor(durationSeconds / 3600)
                 const minutes = Math.floor((durationSeconds % 3600) / 60)
-                
-                if (durationSeconds < 60) {
-                    return `${durationSeconds}s`
-                }
-                
+                if (durationSeconds < 60) return `${durationSeconds}s`
                 return `${hours}h ${minutes}m`
             } catch (fallbackError) {
                 return 'N/A'
@@ -338,7 +304,7 @@ export function AttendanceTableClient() {
             </CardHeader>
             <CardContent>
                 {/* Filters */}
-                <div className="flex gap-4 mb-4">
+                <div className="flex flex-col gap-3 mb-4 md:flex-row">
                     <div className="flex-1">
                         <Input
                             placeholder="Search by name, email, or user ID..."
@@ -347,7 +313,7 @@ export function AttendanceTableClient() {
                         />
                     </div>
                     <Select value={filterRole} onValueChange={setFilterRole}>
-                        <SelectTrigger className="w-48">
+                        <SelectTrigger className="w-full md:w-48">
                             <SelectValue placeholder="Filter by role" />
                         </SelectTrigger>
                         <SelectContent>
@@ -358,6 +324,17 @@ export function AttendanceTableClient() {
                             <SelectItem value="Team Lead">Team Lead</SelectItem>
                             <SelectItem value="Employee">Employee</SelectItem>
                             <SelectItem value="Business Development">Business Development</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select value={filterOfficeId} onValueChange={setFilterOfficeId}>
+                        <SelectTrigger className="w-full md:w-56">
+                            <SelectValue placeholder="Filter by office" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Offices</SelectItem>
+                            {offices.map((o) => (
+                                <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </div>
@@ -373,13 +350,14 @@ export function AttendanceTableClient() {
                                 <TableHead>Check Out</TableHead>
                                 <TableHead>Duration</TableHead>
                                 <TableHead>Location</TableHead>
+                                <TableHead>Office</TableHead>
                                 <TableHead>Status</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {filteredRecords.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                                         No attendance records found
                                     </TableCell>
                                 </TableRow>
@@ -434,6 +412,13 @@ export function AttendanceTableClient() {
                                                         {record.withinGeofence ? 'Office' : 'Remote'}
                                                     </Badge>
                                                 </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                {record.officeId && officeMap[record.officeId] ? (
+                                                    <Badge variant="outline">{officeMap[record.officeId].name}</Badge>
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground">-</span>
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 <Badge variant={record.checkOut ? "secondary" : "default"}>

@@ -2,9 +2,9 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
 export async function generatePayslipPDF(payrollData: any): Promise<Buffer> {
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
   ]
   const month = payrollData.month || 1
   const year = payrollData.year || new Date().getFullYear()
