@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 import { computeWorkingDays } from '@/lib/working-days'
+import { computeDailyStatus, aggregateMonthly } from '@/lib/attendance-utils'
 
 function toMonthStr(month: number): string {
   return month.toString().padStart(2, '0')
@@ -153,13 +154,58 @@ export async function GET(
     const presentDays = await countPresentDays(userIdParam, year, month)
     const attendanceRate = totalWorkingDays > 0 ? (presentDays / totalWorkingDays) * 100 : 0
 
+    // Build daily computations for the month (for extended fields)
+    const monthStr = toMonthStr(month)
+    const startDate = `${year}-${monthStr}-01`
+    const endDate = `${year}-${monthStr}-31`
+    const logsSnap = await db.collection('attendanceRecords')
+      .where('userId', '==', userIdParam)
+      .get()
+    const dailyByDate = new Map<string, ReturnType<typeof computeDailyStatus>>()
+    logsSnap.forEach(doc => {
+      const d = doc.data() as any
+      let dateStr = typeof d.date === 'string' ? d.date : null
+      if (!dateStr) {
+        const ts = d.clockInTime?.toDate ? d.clockInTime.toDate() : (d.createdAt?.toDate ? d.createdAt.toDate() : null)
+        if (ts) dateStr = ts.toISOString().split('T')[0]
+      }
+      if (!dateStr) return
+      const [yy, mm] = dateStr.split('-')
+      if (parseInt(yy) !== year || parseInt(mm) !== month) return
+      const checkIn = d.clockInTime?.toDate ? d.clockInTime.toDate() : null
+      const checkOut = d.clockOutTime?.toDate ? d.clockOutTime.toDate() : null
+      const comp = computeDailyStatus(checkIn, checkOut)
+      comp.date = dateStr
+      dailyByDate.set(dateStr, comp)
+    })
+    // Apply admin overrides
+    const overridesSnap = await db.collection('attendance_overrides').where('userId', '==', userIdParam).get()
+    const overrideMap = new Map<string, number>()
+    overridesSnap.forEach(doc => {
+      const d = doc.data() as any
+      if (typeof d.date === 'string' && typeof d.dayCredit === 'number') {
+        overrideMap.set(d.date, d.dayCredit)
+      }
+    })
+    const list = Array.from(dailyByDate.values()).map(item => {
+      const credit = overrideMap.has(item.date) ? Number(overrideMap.get(item.date)) : item.dayCredit
+      return { dayCredit: credit, underwork: item.underwork, overtimeHours: item.overtimeHours }
+    })
+    const agg = aggregateMonthly(list)
+
     return NextResponse.json({
       userId: userIdParam,
       month,
       year,
-      presentDays,
+      presentDays: agg.presentCredit || presentDays,
       workingDays: totalWorkingDays,
-      attendanceRate
+      attendanceRate,
+      underworkAlerts: agg.underworkAlerts || 0,
+      overtimeHours: agg.overtimeHours || 0,
+      halfDays: agg.halfDays || 0,
+      fullDays: agg.fullDays || 0,
+      zeroDays: agg.zeroDays || 0,
+      presentFullDays: agg.fullDays || 0
     })
   } catch (e) {
     console.error('Error computing attendance summary:', e)

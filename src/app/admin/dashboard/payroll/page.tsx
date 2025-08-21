@@ -25,6 +25,7 @@ import {
   formatCurrency 
 } from '@/lib/payroll'
 import { SalaryEditModal } from '@/components/payroll/SalaryEditModal'
+import { auth } from '@/lib/firebase'
 
 export default function AdminPayrollPage() {
   const [payrollData, setPayrollData] = useState<PayrollData[]>([])
@@ -43,6 +44,36 @@ export default function AdminPayrollPage() {
     setLoading(true)
     try {
       const data = await fetchPayrollData(selectedMonth, selectedYear)
+      // Merge with live monthly summaries per user, to mirror Attendance view logic
+      try {
+        const currentUser = auth.currentUser
+        if (currentUser) {
+          const token = await currentUser.getIdToken()
+          const merged = await Promise.all(
+            data.map(async (row) => {
+              try {
+                const res = await fetch(`/api/attendance/${row.userId}/${selectedMonth}/summary?year=${selectedYear}`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                })
+                if (res.ok) {
+                  const sum = await res.json()
+                  return {
+                    ...row,
+                    presentDays: typeof sum.presentDays === 'number' ? sum.presentDays : row.presentDays,
+                    totalWorkingDays: typeof sum.workingDays === 'number' ? sum.workingDays : row.totalWorkingDays,
+                    halfDays: typeof sum.halfDays === 'number' ? sum.halfDays : row.halfDays,
+                    overtimeHours: typeof sum.overtimeHours === 'number' ? sum.overtimeHours : row.overtimeHours,
+                    underworkAlerts: typeof sum.underworkAlerts === 'number' ? sum.underworkAlerts : row.underworkAlerts,
+                  }
+                }
+              } catch {}
+              return row
+            })
+          )
+          setPayrollData(merged)
+          return
+        }
+      } catch {}
       setPayrollData(data)
     } catch (error) {
       console.error('Error fetching payroll data:', error)
@@ -183,6 +214,9 @@ export default function AdminPayrollPage() {
                   <TableHead>Employee</TableHead>
                   <TableHead>Pay Period</TableHead>
                   <TableHead className="text-center">Present Days</TableHead>
+                  <TableHead className="text-center">Half Days</TableHead>
+                  <TableHead className="text-center">Overtime (hrs)</TableHead>
+                  <TableHead className="text-center">Underwork Alerts</TableHead>
                   <TableHead className="text-center">Working Days</TableHead>
                   <TableHead className="text-center">Attendance Rate</TableHead>
                   <TableHead className="text-right">Base Salary</TableHead>
@@ -197,6 +231,9 @@ export default function AdminPayrollPage() {
                     <TableCell className="font-medium">{payroll.name}</TableCell>
                     <TableCell>{getMonthName(payroll.month)} {payroll.year}</TableCell>
                     <TableCell className="text-center">{payroll.presentDays}</TableCell>
+                    <TableCell className="text-center">{payroll.halfDays ?? '-'}</TableCell>
+                    <TableCell className="text-center">{payroll.overtimeHours ?? 0}</TableCell>
+                    <TableCell className="text-center">{payroll.underworkAlerts ?? 0}</TableCell>
                     <TableCell className="text-center">{payroll.totalWorkingDays}</TableCell>
                     <TableCell className="text-center">
                       {payroll.totalWorkingDays > 0 ? Math.round((payroll.presentDays / payroll.totalWorkingDays) * 100) : 0}%

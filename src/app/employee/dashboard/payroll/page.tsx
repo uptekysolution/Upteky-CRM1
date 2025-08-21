@@ -17,6 +17,7 @@ import {
   formatCurrency,
   fetchEmployeePayrollHistory,
 } from '@/lib/payroll'
+import { auth } from '@/lib/firebase'
 import {
   Table,
   TableBody,
@@ -49,6 +50,31 @@ export default function EmployeePayrollPage() {
     setLoading(true)
     try {
       const data = await fetchEmployeePayroll(selectedMonth, selectedYear)
+      // Also fetch live attendance summary to ensure present/half/overtime are up-to-date
+      try {
+        const currentUser = auth.currentUser
+        if (currentUser) {
+          const token = await currentUser.getIdToken()
+          const res = await fetch(`/api/attendance/${currentUser.uid}/${selectedMonth}/summary?year=${selectedYear}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          if (res.ok) {
+            const sum = await res.json()
+            const merged: PayrollData = {
+              ...data,
+              presentDays: typeof sum.presentDays === 'number' ? sum.presentDays : data.presentDays,
+              totalWorkingDays: typeof sum.workingDays === 'number' ? sum.workingDays : data.totalWorkingDays,
+              halfDays: typeof sum.halfDays === 'number' ? sum.halfDays : data.halfDays,
+              overtimeHours: typeof sum.overtimeHours === 'number' ? sum.overtimeHours : data.overtimeHours,
+              underworkAlerts: typeof sum.underworkAlerts === 'number' ? sum.underworkAlerts : data.underworkAlerts,
+            }
+            setPayrollData(merged)
+            return
+          }
+        }
+      } catch {
+        // Ignore summary fetch errors; fall back to payroll response
+      }
       setPayrollData(data)
     } catch (error) {
       console.error('Error fetching payroll data:', error)
@@ -207,6 +233,20 @@ export default function EmployeePayrollPage() {
                     <div className="text-center p-4 bg-background rounded-lg">
                       <p className="text-sm text-muted-foreground mb-2">Total Working Days</p>
                       <p className="text-3xl font-bold text-blue-600">{payrollData.totalWorkingDays}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
+                    <div className="text-center p-4 bg-background rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">Half Days</p>
+                      <p className="text-2xl font-semibold">{payrollData.halfDays ?? 0}</p>
+                    </div>
+                    <div className="text-center p-4 bg-background rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">Overtime (hrs)</p>
+                      <p className="text-2xl font-semibold">{payrollData.overtimeHours ?? 0}</p>
+                    </div>
+                    <div className="text-center p-4 bg-background rounded-lg">
+                      <p className="text-sm text-muted-foreground mb-2">Underwork Alerts</p>
+                      <p className="text-2xl font-semibold">{payrollData.underworkAlerts ?? 0}</p>
                     </div>
                   </div>
                   <div className="mt-4 text-center">

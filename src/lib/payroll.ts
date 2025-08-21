@@ -19,6 +19,11 @@ export interface PayrollData {
   netPay?: number
   payslipUrl?: string | null
   createdAt?: Date
+  // New attendance breakdowns
+  halfDays?: number
+  fullDays?: number
+  overtimeHours?: number
+  underworkAlerts?: number
 }
 
 export interface SalaryUpdate {

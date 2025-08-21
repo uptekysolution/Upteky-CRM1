@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 import { computeWorkingDays } from '@/lib/working-days'
+import { aggregateMonthly, computeDailyStatus } from '@/lib/attendance-utils'
 
 function mstr(month: number): string { return month.toString().padStart(2, '0') }
 // Helper: Calculate distinct present days for a user in a month
@@ -119,7 +120,31 @@ export async function GET(
     
     // Calculate fresh values for dynamic UI regardless of payroll doc existence
     const { totalWorkingDays } = await computeWorkingDays(year, month)
-    const presentDays = await calculatePresentDays(userId, year, month)
+    // Build monthly summary for the user including overtime and underwork
+    const records = await db.collection('attendanceRecords').where('userId', '==', userId).get()
+    const dailyMap = new Map<string, ReturnType<typeof computeDailyStatus>>()
+    records.forEach(doc => {
+      const d = doc.data() as any
+      let dateStr = typeof d.date === 'string' ? d.date : null
+      if (!dateStr) {
+        const ts = d.clockInTime?.toDate ? d.clockInTime.toDate() : (d.createdAt?.toDate ? d.createdAt.toDate() : null)
+        if (ts) dateStr = ts.toISOString().split('T')[0]
+      }
+      if (!dateStr) return
+      const [yy, mm] = dateStr.split('-')
+      if (parseInt(yy) !== year || parseInt(mm) !== month) return
+      const checkIn = d.clockInTime?.toDate ? d.clockInTime.toDate() : null
+      const checkOut = d.clockOutTime?.toDate ? d.clockOutTime.toDate() : null
+      const comp = computeDailyStatus(checkIn, checkOut)
+      comp.date = dateStr
+      dailyMap.set(dateStr, comp)
+    })
+    const overridesSnap = await db.collection('attendance_overrides').where('userId', '==', userId).get()
+    const overrideMap = new Map<string, number>()
+    overridesSnap.forEach(doc => { const d = doc.data() as any; if (d.date) overrideMap.set(d.date, d.dayCredit) })
+    const agg = aggregateMonthly(Array.from(dailyMap.values()).map(x => ({ dayCredit: overrideMap.has(x.date) ? Number(overrideMap.get(x.date)) : x.dayCredit, underwork: x.underwork, overtimeHours: x.overtimeHours })))
+    const presentDays = agg.presentCredit
+    const overtimeHours = agg.overtimeHours
 
     // Base salary inputs
     const salaryType = (userData?.salaryType || 'monthly') as 'monthly' | 'daily'
@@ -128,9 +153,12 @@ export async function GET(
     // Calculate salary
     let salaryPaid = 0
     if (salaryType === 'monthly' && salaryAmount) {
-      salaryPaid = (presentDays / totalWorkingDays) * salaryAmount
+      const perDay = salaryAmount / totalWorkingDays
+      const perHour = perDay / 9
+      salaryPaid = (presentDays * perDay) + (overtimeHours * perHour)
     } else if (salaryType === 'daily' && salaryAmount) {
-      salaryPaid = presentDays * salaryAmount
+      const perHour = salaryAmount / 9
+      salaryPaid = (presentDays * salaryAmount) + (overtimeHours * perHour)
     }
 
     if (payrollDoc.exists) {
@@ -151,6 +179,8 @@ export async function GET(
         allowancesTotal: payrollData?.allowancesTotal || 0,
         deductionsTotal: payrollData?.deductionsTotal || 0,
         netPay: payrollData?.netPay ?? Math.round(salaryPaid * 100) / 100,
+        overtimeHours,
+        underworkAlerts: agg.underworkAlerts || 0
       })
     }
 
@@ -170,6 +200,8 @@ export async function GET(
       allowancesTotal: 0,
       deductionsTotal: 0,
       netPay: Math.round(salaryPaid * 100) / 100,
+      overtimeHours,
+      underworkAlerts: agg.underworkAlerts || 0
     })
   } catch (error) {
     console.error('Error fetching employee payroll data:', error)
