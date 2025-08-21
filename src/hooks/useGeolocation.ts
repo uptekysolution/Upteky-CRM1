@@ -7,21 +7,33 @@ interface GeolocationState {
     lon: number | null
     loading: boolean
     error: string | null
+    accuracy: number | null
+    retryCount: number
 }
 
 interface GeolocationHook extends GeolocationState {
     refresh: () => void
+    forceRefresh: () => void
 }
+
+// Maximum allowed accuracy in meters (100m = poor accuracy)
+const MAX_ACCURACY = 100
+// Maximum retry attempts for high accuracy
+const MAX_RETRIES = 3
+// Timeout for each GPS request
+const GPS_TIMEOUT = 15000
 
 export function useGeolocation(): GeolocationHook {
     const [state, setState] = useState<GeolocationState>({
         lat: null,
         lon: null,
         loading: true,
-        error: null
+        error: null,
+        accuracy: null,
+        retryCount: 0
     })
 
-    const getCurrentPosition = useCallback(() => {
+    const getCurrentPosition = useCallback((isRetry = false) => {
         if (!navigator.geolocation) {
             setState(prev => ({
                 ...prev,
@@ -31,15 +43,69 @@ export function useGeolocation(): GeolocationHook {
             return
         }
 
-        setState(prev => ({ ...prev, loading: true, error: null }))
+        // Check if we're on HTTPS (required for high accuracy GPS)
+        if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            setState(prev => ({
+                ...prev,
+                loading: false,
+                error: 'HTTPS is required for high accuracy GPS. Please use HTTPS or localhost.'
+            }))
+            return
+        }
+
+        setState(prev => ({ 
+            ...prev, 
+            loading: true, 
+            error: null,
+            retryCount: isRetry ? prev.retryCount + 1 : 0
+        }))
+
+        const options: PositionOptions = {
+            enableHighAccuracy: true,
+            timeout: GPS_TIMEOUT,
+            maximumAge: 0 // Don't use cached positions - always get fresh GPS
+        }
 
         navigator.geolocation.getCurrentPosition(
             (position) => {
+                const { latitude, longitude, accuracy } = position.coords
+                
+                console.log('📍 GPS Position received:', {
+                    lat: latitude,
+                    lon: longitude,
+                    accuracy: `${accuracy}m`,
+                    retryCount: state.retryCount,
+                    timestamp: new Date(position.timestamp).toISOString()
+                })
+
+                // Validate accuracy
+                if (accuracy > MAX_ACCURACY) {
+                    console.warn(`⚠️ GPS accuracy too low: ${accuracy}m (max: ${MAX_ACCURACY}m)`)
+                    
+                    if (state.retryCount < MAX_RETRIES) {
+                        console.log(`🔄 Retrying GPS (attempt ${state.retryCount + 1}/${MAX_RETRIES})...`)
+                        setTimeout(() => getCurrentPosition(true), 2000) // Wait 2 seconds before retry
+                        return
+                    } else {
+                        console.error(`❌ GPS accuracy still poor after ${MAX_RETRIES} attempts`)
+                        setState(prev => ({
+                            ...prev,
+                            loading: false,
+                            error: `GPS accuracy too low (${accuracy}m). Please ensure you're outdoors with clear sky view and try again.`
+                        }))
+                        return
+                    }
+                }
+
+                // Success - accuracy is good enough
+                console.log(`✅ GPS accuracy acceptable: ${accuracy}m`)
                 setState({
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude,
+                    lat: latitude,
+                    lon: longitude,
                     loading: false,
-                    error: null
+                    error: null,
+                    accuracy: accuracy,
+                    retryCount: 0
                 })
             },
             (error) => {
@@ -47,35 +113,51 @@ export function useGeolocation(): GeolocationHook {
 
                 switch (error.code) {
                     case error.PERMISSION_DENIED:
-                        errorMessage = 'Location permission denied'
+                        errorMessage = 'Location permission denied. Please allow "Precise Location" in your browser settings.'
                         break
                     case error.POSITION_UNAVAILABLE:
-                        errorMessage = 'Location information unavailable'
+                        errorMessage = 'Location information unavailable. Please check your GPS settings.'
                         break
                     case error.TIMEOUT:
-                        errorMessage = 'Location request timed out'
+                        errorMessage = `Location request timed out after ${GPS_TIMEOUT/1000}s. Please try again.`
                         break
                     default:
                         errorMessage = 'Unknown location error'
                 }
 
-                setState({
+                console.error('❌ GPS Error:', {
+                    code: error.code,
+                    message: errorMessage,
+                    retryCount: state.retryCount
+                })
+
+                setState(prev => ({
+                    ...prev,
                     lat: null,
                     lon: null,
                     loading: false,
-                    error: errorMessage
-                })
+                    error: errorMessage,
+                    accuracy: null
+                }))
             },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 300000 // 5 minutes
-            }
+            options
         )
-    }, [])
+    }, [state.retryCount])
 
     const refresh = useCallback(() => {
         getCurrentPosition()
+    }, [getCurrentPosition])
+
+    const forceRefresh = useCallback(() => {
+        // Force a fresh GPS reading by clearing any cached data
+        setState(prev => ({
+            ...prev,
+            lat: null,
+            lon: null,
+            accuracy: null,
+            retryCount: 0
+        }))
+        setTimeout(() => getCurrentPosition(), 100)
     }, [getCurrentPosition])
 
     useEffect(() => {
@@ -84,6 +166,7 @@ export function useGeolocation(): GeolocationHook {
 
     return {
         ...state,
-        refresh
+        refresh,
+        forceRefresh
     }
 }

@@ -43,7 +43,7 @@ const PREDEFINED_OFFICES: Office[] = [
 
 export function CheckInOut() {
     const { toast } = useToast()
-    const { lat, lon, loading: locationLoading, error: locationError, refresh: refreshLocation } = useGeolocation()
+    const { lat, lon, loading: locationLoading, error: locationError, accuracy, retryCount, refresh: refreshLocation, forceRefresh } = useGeolocation()
     const [user, setUser] = useState<User | null>(null)
     const [userData, setUserData] = useState<UserData | null>(null)
     const [isCheckedIn, setIsCheckedIn] = useState(false)
@@ -332,41 +332,65 @@ export function CheckInOut() {
                 <MapPin className="h-4 w-4" />
                 <div className="flex-1">
                     {locationLoading ? (
-                        <p className="text-sm">Getting location...</p>
+                        <div className="space-y-1">
+                            <p className="text-sm">Getting location...</p>
+                            {retryCount > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                    Retry attempt {retryCount}/3 - Ensuring high accuracy GPS
+                                </p>
+                            )}
+                        </div>
                     ) : locationError ? (
                         <div className="flex items-center gap-2">
                             <AlertTriangle className="h-4 w-4 text-destructive" />
-                            <p className="text-sm text-destructive">{locationError}</p>
-                            <Button variant="outline" size="sm" onClick={refreshLocation}>
-                                Retry
-                            </Button>
+                            <div className="flex-1">
+                                <p className="text-sm text-destructive">{locationError}</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    For best accuracy: Use HTTPS, allow "Precise Location", and ensure clear sky view
+                                </p>
+                            </div>
+                            <div className="flex gap-1">
+                                <Button variant="outline" size="sm" onClick={refreshLocation}>
+                                    Retry
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={forceRefresh}>
+                                    Force Refresh
+                                </Button>
+                            </div>
                         </div>
                     ) : lat && lon ? (
-                        <div className="flex items-center gap-2">
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                            <p className="text-sm">Location available</p>
-                            {distanceInfo && (
-                                <div className="flex items-center gap-2">
-                                    <Badge variant={distanceInfo.withinGeofence ? "default" : "destructive"}>
-                                        {distanceInfo.distanceM < 1000 
-                                            ? `${distanceInfo.distanceM}m` 
-                                            : `${(distanceInfo.distanceM / 1000).toFixed(1)}km`
-                                        } from {distanceInfo.officeName}
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <p className="text-sm">Location available</p>
+                                {accuracy && (
+                                    <Badge variant="secondary" className="text-xs">
+                                        GPS Accuracy: {accuracy}m
                                     </Badge>
-                                    {distanceInfo.withinGeofence ? (
-                                        <Badge variant="secondary" className="bg-green-100 text-green-800">
-                                            ✓ Within 50m
+                                )}
+                                {distanceInfo && (
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant={distanceInfo.withinGeofence ? "default" : "destructive"}>
+                                            {distanceInfo.distanceM < 1000 
+                                                ? `${distanceInfo.distanceM}m` 
+                                                : `${(distanceInfo.distanceM / 1000).toFixed(1)}km`
+                                            } from {distanceInfo.officeName}
                                         </Badge>
-                                    ) : (
-                                        <Badge variant="secondary" className="bg-red-100 text-red-800">
-                                            ✗ Outside 50m
-                                        </Badge>
-                                    )}
-                                </div>
-                            )}
+                                        {distanceInfo.withinGeofence ? (
+                                            <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                                ✓ Within 50m
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="secondary" className="bg-red-100 text-red-800">
+                                                ✗ Outside 50m
+                                            </Badge>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                             {/* Debug info - remove in production */}
                             {lat && lon && (
-                                <div className="text-xs text-muted-foreground mt-1">
+                                <div className="text-xs text-muted-foreground">
                                     <p>Your location: {lat.toFixed(8)}, {lon.toFixed(8)}</p>
                                     {selectedOfficeId && (
                                         <p>Office location: {allOffices.find(o => o.id === selectedOfficeId)?.latitude.toFixed(8)}, {allOffices.find(o => o.id === selectedOfficeId)?.longitude.toFixed(8)}</p>
