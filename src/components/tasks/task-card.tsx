@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { MoreHorizontal, Calendar, User, Clock, Edit, Trash2, Eye, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Task, TaskStatus, TaskPriority } from '@/types/task';
-import { TaskService } from '@/lib/task-service';
 import { useToast } from '@/hooks/use-toast';
 import { auth } from '@/lib/firebase';
 
@@ -72,18 +71,7 @@ export function TaskCard({
   const handleStatusChange = async (newStatus: TaskStatus) => {
     setIsUpdating(true);
     try {
-      await TaskService.updateTaskStatus(task.id, newStatus);
-      onStatusChange(task.id, newStatus);
-      toast({
-        title: "Status Updated",
-        description: `Task status changed to ${newStatus}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update task status",
-        variant: "destructive",
-      });
+      await Promise.resolve(onStatusChange(task.id, newStatus));
     } finally {
       setIsUpdating(false);
     }
@@ -92,18 +80,7 @@ export function TaskCard({
   const handleProgressChange = async (newProgress: number) => {
     setIsUpdating(true);
     try {
-      await TaskService.updateTaskProgress(task.id, newProgress);
-      onProgressChange(task.id, newProgress);
-      toast({
-        title: "Progress Updated",
-        description: `Task progress updated to ${newProgress}%`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update task progress",
-        variant: "destructive",
-      });
+      await Promise.resolve(onProgressChange(task.id, newProgress));
     } finally {
       setIsUpdating(false);
     }
@@ -111,7 +88,23 @@ export function TaskCard({
 
   const isOverdue = new Date(task.deadline) < new Date() && task.status !== TaskStatus.COMPLETED;
   const isAssignedToCurrentUser = currentUser && task.assigneeId === currentUser.uid;
-  const canEdit = isAdmin || isAssignedToCurrentUser;
+  const canUpdateStatus = isAdmin || isAssignedToCurrentUser;
+  const canEditDetails = isAdmin; // Only admins/leads can edit task details
+
+  const allowedNextStatusesForEmployee: Record<TaskStatus, TaskStatus[]> = {
+    [TaskStatus.TODO]: [TaskStatus.IN_PROGRESS],
+    [TaskStatus.IN_PROGRESS]: [TaskStatus.IN_REVIEW],
+    [TaskStatus.IN_REVIEW]: [TaskStatus.TODO, TaskStatus.IN_PROGRESS],
+    [TaskStatus.COMPLETED]: [],
+    [TaskStatus.CANCELLED]: [],
+  };
+
+  const getSelectableStatuses = (): TaskStatus[] => {
+    if (isAdmin) return Object.values(TaskStatus);
+    // Employee (assignee): limit transitions and exclude Completed/Cancelled
+    const current = task.status as TaskStatus;
+    return allowedNextStatusesForEmployee[current] || [];
+  };
 
   return (
     <>
@@ -138,7 +131,7 @@ export function TaskCard({
                   <Eye className="mr-2 h-4 w-4" />
                   View Details
                 </DropdownMenuItem>
-                {canEdit && (
+                {canEditDetails && (
                   <DropdownMenuItem onClick={() => onEdit(task)}>
                     <Edit className="mr-2 h-4 w-4" />
                     Edit
@@ -184,7 +177,7 @@ export function TaskCard({
           </div>
 
           {/* Task Management Controls - Show for assigned user or admin */}
-          {canEdit && (
+          {canUpdateStatus && (
             <div className="mt-3 pt-3 border-t border-muted">
               <div className="space-y-2">
                 {/* Status Update */}
@@ -199,7 +192,7 @@ export function TaskCard({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.values(TaskStatus).map((status) => (
+                      {getSelectableStatuses().map((status) => (
                         <SelectItem key={status} value={status}>
                           {status}
                         </SelectItem>
@@ -226,7 +219,7 @@ export function TaskCard({
                 </div>
 
                 {/* Quick Complete Button */}
-                {task.status !== TaskStatus.COMPLETED && (
+                {isAdmin && task.status !== TaskStatus.COMPLETED && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -326,7 +319,7 @@ export function TaskCard({
             )}
 
             {/* Task Management in Details */}
-            {canEdit && (
+            {canUpdateStatus && (
               <div className="pt-4 border-t border-muted">
                 <h4 className="font-medium mb-3">Update Task</h4>
                 <div className="space-y-3">
@@ -341,7 +334,7 @@ export function TaskCard({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.values(TaskStatus).map((status) => (
+                        {getSelectableStatuses().map((status) => (
                           <SelectItem key={status} value={status}>
                             {status}
                           </SelectItem>
@@ -366,7 +359,7 @@ export function TaskCard({
                     </div>
                   </div>
 
-                  {task.status !== TaskStatus.COMPLETED && (
+                  {isAdmin && task.status !== TaskStatus.COMPLETED && (
                     <Button
                       onClick={() => handleStatusChange(TaskStatus.COMPLETED)}
                       disabled={isUpdating}

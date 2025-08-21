@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { TaskService } from '@/lib/task-service';
+import { auth } from '@/lib/firebase';
 
 type Props = {
 	tasks: Task[];
@@ -29,7 +29,14 @@ const statusColor = (status: TaskStatus) => {
 
 export default function TasksList({ tasks }: Props) {
 	const markComplete = useCallback(async (taskId: string) => {
-		await TaskService.updateTaskStatus(taskId, TaskStatus.COMPLETED);
+		const user = auth.currentUser;
+		if (!user) return;
+		const token = await user.getIdToken();
+		await fetch('/api/tasks/update-status', {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ taskId, status: TaskStatus.COMPLETED }),
+		});
 	}, []);
 
 	return (

@@ -30,7 +30,7 @@ export default function EmployeeTasksPage() {
   const [users, setUsers] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('tasks');
-  const [currentUser, setCurrentUser] = useState<{ uid: string; name: string; email: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ uid: string; name: string; email: string; role?: string } | null>(null);
   
   // Modal states
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -54,13 +54,15 @@ export default function EmployeeTasksPage() {
             setCurrentUser({
               uid: user.uid,
               name: userDoc.name || userDoc.firstName + ' ' + userDoc.lastName || 'Unknown User',
-              email: user.email || ''
+              email: user.email || '',
+              role: userDoc.role,
             });
           } else {
             setCurrentUser({
               uid: user.uid,
               name: user.displayName || 'Unknown User',
-              email: user.email || ''
+              email: user.email || '',
+              role: undefined,
             });
           }
         } catch (error) {
@@ -187,13 +189,17 @@ export default function EmployeeTasksPage() {
     setFilteredTasks(filtered);
   };
 
+  const isAdminOrLead = (currentUser?.role || '').toLowerCase() === 'admin' || (currentUser?.role || '').toLowerCase() === 'manager' || (currentUser?.role || '').toLowerCase() === 'team lead';
+
   const handleNewTask = (date?: Date) => {
+    if (!isAdminOrLead) return; // UI guard
     setEditingTask(null);
     setInitialDate(date);
     setShowTaskModal(true);
   };
 
   const handleNewMeeting = (date?: Date) => {
+    if (!isAdminOrLead) return; // UI guard
     setEditingMeeting(null);
     setInitialDate(date);
     setShowMeetingModal(true);
@@ -249,7 +255,19 @@ export default function EmployeeTasksPage() {
 
   const handleTaskStatusChange = async (taskId: string, status: TaskStatus) => {
     try {
-      await TaskService.updateTaskStatus(taskId, status);
+      const user = auth.currentUser;
+      if (!user) throw new Error('Not signed in');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/tasks/update-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ taskId, status }),
+      });
+      if (!res.ok) {
+        if (res.status === 403) throw new Error('You are not allowed to set this status');
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to update task status');
+      }
       // Real-time listener will update the UI automatically
       toast({
         title: "Status Updated",
@@ -510,12 +528,12 @@ export default function EmployeeTasksPage() {
                 onEdit={handleEditMeeting}
                 onDelete={handleDeleteMeeting}
                 onStatusChange={handleMeetingStatusChange}
-                isAdmin={false}
+                isAdmin={isAdminOrLead}
               />
             ))}
           </div>
           
-          {meetings.length === 0 && (
+          {meetings.length === 0 && isAdminOrLead && (
             <div className="text-center py-12 text-muted-foreground">
               <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No meetings scheduled yet</p>
@@ -574,11 +592,13 @@ export default function EmployeeTasksPage() {
         initialDate={initialDate}
       />
 
-      {/* Floating Action Button */}
-      <FloatingActionButton
-        onNewTask={() => handleNewTask()}
-        onNewMeeting={() => handleNewMeeting()}
-      />
+      {/* Floating Action Button - only for Admin/Team Lead */}
+      {isAdminOrLead && (
+        <FloatingActionButton
+          onNewTask={() => handleNewTask()}
+          onNewMeeting={() => handleNewMeeting()}
+        />
+      )}
     </div>
   );
 }

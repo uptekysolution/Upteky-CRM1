@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { Meeting, MeetingStatus } from '@/types/task';
 import { User } from '@/lib/user-service';
 import { MeetingService } from '@/lib/meeting-service';
+import { auth } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 interface MeetingModalProps {
@@ -117,14 +118,30 @@ export function MeetingModal({ isOpen, onClose, meeting, users, onSuccess, initi
             attended: false,
             response: 'pending' as const
           }));
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new Error('You must be signed in');
+        }
+        const token = await currentUser.getIdToken();
 
-        await MeetingService.createMeeting({
-          ...formData,
-          date: formData.date,
-          participants,
-          createdBy: 'current-user-id', // This should come from auth context
-          status: MeetingStatus.SCHEDULED
+        const res = await fetch('/api/meetings/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...formData,
+            date: formData.date,
+            participants,
+            status: MeetingStatus.SCHEDULED,
+          }),
         });
+        if (!res.ok) {
+          if (res.status === 403) throw new Error('You are not allowed to schedule meetings');
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || 'Failed to create meeting');
+        }
         toast({
           title: "Meeting Created",
           description: "New meeting has been created successfully.",

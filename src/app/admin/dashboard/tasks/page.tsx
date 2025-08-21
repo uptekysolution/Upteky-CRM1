@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { PlusCircle, Calendar, List, Filter, Users, Clock, CheckSquare } from "lucide-react";
 import { Task, TaskStatus, TaskPriority, TaskFilters, Meeting, MeetingStatus } from '@/types/task';
 import { TaskService } from '@/lib/task-service';
+import { auth } from '@/lib/firebase';
 import { MeetingService } from '@/lib/meeting-service';
 import { UserService, User } from '@/lib/user-service';
 import { TaskModal } from '@/components/tasks/task-modal';
@@ -224,16 +225,38 @@ export default function AdminTasksPage() {
     }
   };
 
-  const handleTaskStatusChange = (taskId: string, status: TaskStatus) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, status } : task
-    ));
+  const handleTaskStatusChange = async (taskId: string, status: TaskStatus) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Not signed in');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/tasks/update-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ taskId, status }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to update task status');
+      }
+      // Optimistic UI (realtime listeners will reflect eventually)
+      setTasks(prev => prev.map(task => 
+        task.id === taskId ? { ...task, status } : task
+      ));
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const handleTaskProgressChange = (taskId: string, progress: number) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, progress } : task
-    ));
+  const handleTaskProgressChange = async (taskId: string, progress: number) => {
+    try {
+      await TaskService.updateTaskProgress(taskId, progress);
+      setTasks(prev => prev.map(task => 
+        task.id === taskId ? { ...task, progress } : task
+      ));
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleMeetingStatusChange = (meetingId: string, status: MeetingStatus) => {

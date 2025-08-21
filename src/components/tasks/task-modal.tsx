@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { Task, TaskPriority, TaskStatus } from '@/types/task';
 import { User } from '@/lib/user-service';
 import { TaskService } from '@/lib/task-service';
+import { auth } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 interface TaskModalProps {
@@ -91,14 +92,31 @@ export function TaskModal({ isOpen, onClose, task, employees, onSuccess, initial
           throw new Error('Please select an employee');
         }
 
-        await TaskService.createTask({
-          ...formData,
-          deadline: formData.deadline,
-          assigneeName: selectedEmployee.name,
-          assigneeEmail: selectedEmployee.email,
-          createdBy: 'current-user-id', // This should come from auth context
-          progress: 0
+        const currentUser = auth.currentUser;
+        if (!currentUser) {
+          throw new Error('You must be signed in');
+        }
+        const token = await currentUser.getIdToken();
+
+        const res = await fetch('/api/tasks/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...formData,
+            deadline: formData.deadline,
+            assigneeName: selectedEmployee.name,
+            assigneeEmail: selectedEmployee.email,
+            progress: 0,
+          }),
         });
+        if (!res.ok) {
+          if (res.status === 403) throw new Error('You are not allowed to create tasks');
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || 'Failed to create task');
+        }
         toast({
           title: "Task Created",
           description: "New task has been created successfully.",
