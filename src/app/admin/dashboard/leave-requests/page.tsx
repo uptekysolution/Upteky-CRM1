@@ -39,9 +39,9 @@ export default function AdminLeaveRequestsPage() {
     currentUserName: currentUser.name
   });
 
-  const handleStatusUpdate = async (requestId: string, status: LeaveStatus, rejectionReason?: string) => {
+  const handleStatusUpdate = async (requestId: string, status: LeaveStatus, rejectionReason?: string, paymentType?: string) => {
     try {
-      await updateLeaveRequestStatus(requestId, status, rejectionReason);
+      await updateLeaveRequestStatus(requestId, status, rejectionReason, paymentType);
       toast({
         title: `Leave Request ${status === 'approved' ? 'Approved' : 'Rejected'}`,
         description: `The leave request has been ${status} successfully.`,

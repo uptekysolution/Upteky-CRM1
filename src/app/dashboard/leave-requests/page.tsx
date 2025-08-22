@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LeaveRequestForm } from '@/components/attendance/LeaveRequestForm';
 import { LeaveCalendar } from '@/components/ui/leave-calendar';
 import { useLeaveManagement } from '@/hooks/useLeaveManagement';
-import { LeaveRequest, LeaveStatus } from '@/types/leave';
+import { LeaveRequest, LeaveStatus, LeavePaymentType } from '@/types/leave';
 import { useToast } from '@/hooks/use-toast';
 import { safeFormat, getDaysBetween } from '@/utils/dateUtils';
 
@@ -222,6 +222,11 @@ export default function LeaveRequestsPage() {
                             </span>
                             {getStatusBadge(request.status)}
                             {getLeaveTypeBadge(request.leaveType)}
+                            {request.status === 'approved' && request.paymentType && (
+                              <Badge variant={request.paymentType === 'paid' ? 'default' : 'secondary'} className="text-xs">
+                                {request.paymentType === 'paid' ? 'Paid' : 'Unpaid'}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-sm text-muted-foreground truncate">
                             {request.reason}
@@ -299,6 +304,11 @@ export default function LeaveRequestsPage() {
                             </span>
                             {getStatusBadge(request.status)}
                             {getLeaveTypeBadge(request.leaveType)}
+                            {request.status === 'approved' && request.paymentType && (
+                              <Badge variant={request.paymentType === 'paid' ? 'default' : 'secondary'}>
+                                {request.paymentType === 'paid' ? 'Paid' : 'Unpaid'}
+                              </Badge>
+                            )}
                             <Badge variant="outline">
                               {getDaysBetween(request.startDate, request.endDate)} days
                             </Badge>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 import { computeDailyStatus } from '@/lib/attendance-utils'
+import { canViewAttendanceRecord, getUserPermissions } from '@/lib/attendance-permissions'
 
 // GET /api/attendance/logs/:userId/:date (YYYY-MM-DD)
 export async function GET(
@@ -19,15 +20,33 @@ export async function GET(
     const { userId, date } = await params
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ message: 'Invalid date' }, { status: 400 })
 
-    // Authorization: allow self or admin/hr
+    // Authorization: check permissions
     const viewerId = decoded.uid
-    let canView = viewerId === userId
+    let canView = viewerId === userId // User can always view their own records
+    
     if (!canView) {
-      const viewerDoc = await db.collection('users').doc(viewerId).get()
-      const role = (viewerDoc.data()?.role || '').toLowerCase()
-      canView = ['admin', 'sub-admin', 'hr'].includes(role)
+      try {
+        // Get viewer's role and permissions
+        const viewerDoc = await db.collection('users').doc(viewerId).get()
+        if (!viewerDoc.exists) {
+          return NextResponse.json({ message: 'Viewer not found' }, { status: 404 })
+        }
+        
+        const viewerData = viewerDoc.data()
+        const viewerRole = viewerData?.role || 'Employee'
+        const viewerPermissions = await getUserPermissions(viewerId)
+        
+        // Check if viewer can access this user's attendance
+        canView = await canViewAttendanceRecord(userId, viewerId, viewerRole, viewerPermissions)
+      } catch (error) {
+        console.error('Error checking attendance permissions:', error)
+        return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+      }
     }
-    if (!canView) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+    
+    if (!canView) {
+      return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+    }
 
     // Fetch records for this date
     const primary = await db.collection('attendanceRecords').where('userId', '==', userId).get()

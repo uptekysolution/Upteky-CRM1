@@ -165,7 +165,8 @@ export function useLeaveManagement({
   const updateLeaveRequestStatus = useCallback(async (
     requestId: string, 
     status: LeaveStatus, 
-    rejectionReason?: string
+    rejectionReason?: string,
+    paymentType?: string
   ) => {
     setIsUpdating(true);
     try {
@@ -178,7 +179,8 @@ export function useLeaveManagement({
         body: JSON.stringify({
           status,
           rejectionReason,
-          approvedBy: currentUserName
+          approvedBy: currentUserName,
+          paymentType
         })
       });
 

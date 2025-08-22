@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckInOut } from "@/components/attendance/CheckInOut"
 import { AttendanceTableClient } from "@/components/attendance/AttendanceTableClient"
@@ -9,10 +10,12 @@ import { AnalyticsDashboard } from "@/components/analytics/AnalyticsDashboard"
 import { LeaveRequestForm } from "@/components/attendance/LeaveRequestForm"
 import { LeaveCalendar } from "@/components/ui/leave-calendar"
 import { useLeaveManagement } from "@/hooks/useLeaveManagement"
-import { Clock, Users, BarChart3, FileText } from 'lucide-react'
+import { safeFormat, getDaysBetween } from "@/utils/dateUtils"
+import { Clock, Users, BarChart3, FileText, Check, X } from 'lucide-react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth, db } from '@/lib/firebase'
 import { doc, getDoc } from 'firebase/firestore'
+import { AttendancePermissionGuard } from "@/components/attendance-permission-guard"
 
 export default function EmployeeAttendancePage() {
     const [currentUserId, setCurrentUserId] = useState<string>("")
@@ -58,9 +61,13 @@ export default function EmployeeAttendancePage() {
     }, [])
 
     const {
+        leaveRequests,
         submitLeaveRequest,
         isSubmitting,
         getMonthlyLeaveUsed,
+        pendingRequests,
+        approvedRequests,
+        rejectedRequests
     } = useLeaveManagement({
         userRole: currentUserRole,
         currentUserId: currentUserId,
@@ -68,13 +75,14 @@ export default function EmployeeAttendancePage() {
     });
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Attendance</h1>
-                <p className="text-muted-foreground">
-                    Check in/out and view your attendance records with geolocation tracking.
-                </p>
-            </div>
+        <AttendancePermissionGuard>
+            <div className="space-y-6">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Attendance</h1>
+                    <p className="text-muted-foreground">
+                        Check in/out and view your attendance records with geolocation tracking.
+                    </p>
+                </div>
 
             <Tabs defaultValue="checkinout" className="space-y-4">
                 <TabsList>
@@ -115,7 +123,7 @@ export default function EmployeeAttendancePage() {
                     <div className="grid gap-6">
                         <Card>
                             <CardHeader>
-                                <CardTitle>Leave Management</CardTitle>
+                                <CardTitle>Request Leave</CardTitle>
                                 <CardContent className="p-0 pt-4">
                                     <LeaveRequestForm 
                                         onSubmit={submitLeaveRequest} 
@@ -126,6 +134,123 @@ export default function EmployeeAttendancePage() {
                                 </CardContent>
                             </CardHeader>
                         </Card>
+
+                        {/* Pending Leave Requests */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Clock className="h-5 w-5" />
+                                    Pending Leave Requests ({pendingRequests.length})
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {pendingRequests.length === 0 ? (
+                                    <p className="text-muted-foreground text-center py-8">
+                                        No pending leave requests
+                                    </p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {pendingRequests.map((request) => (
+                                            <div key={request.id} className="border rounded-lg p-4">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <span className="font-medium">
+                                                                {safeFormat(request.startDate, 'MMM dd')} - {safeFormat(request.endDate, 'MMM dd')}
+                                                            </span>
+                                                            <Badge variant="secondary">
+                                                                {request.leaveType.charAt(0).toUpperCase() + request.leaveType.slice(1)}
+                                                            </Badge>
+                                                            <Badge variant="outline">
+                                                                {getDaysBetween(request.startDate, request.endDate)} days
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="text-sm text-muted-foreground mb-2">
+                                                            {request.reason}
+                                                        </p>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Requested on {safeFormat(request.requestedAt, 'MMM dd, yyyy HH:mm')}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Processed Leave Requests */}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <FileText className="h-5 w-5" />
+                                    Processed Leave Requests ({approvedRequests.length + rejectedRequests.length})
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {approvedRequests.length === 0 && rejectedRequests.length === 0 ? (
+                                    <p className="text-muted-foreground text-center py-8">
+                                        No processed leave requests
+                                    </p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {[...approvedRequests, ...rejectedRequests]
+                                            .sort((a, b) => {
+                                                const dateA = a.approvedAt || a.requestedAt;
+                                                const dateB = b.approvedAt || b.requestedAt;
+                                                return new Date(dateB).getTime() - new Date(dateA).getTime();
+                                            })
+                                            .map((request) => (
+                                            <div key={request.id} className="border rounded-lg p-4">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <span className="font-medium">
+                                                                {safeFormat(request.startDate, 'MMM dd')} - {safeFormat(request.endDate, 'MMM dd')}
+                                                            </span>
+                                                            <Badge variant="secondary">
+                                                                {request.leaveType.charAt(0).toUpperCase() + request.leaveType.slice(1)}
+                                                            </Badge>
+                                                            <Badge variant="outline">
+                                                                {getDaysBetween(request.startDate, request.endDate)} days
+                                                            </Badge>
+                                                            {request.status === 'approved' ? (
+                                                                <Badge variant="default" className="bg-green-100 text-green-800">
+                                                                    <Check className="h-3 w-3 mr-1" />
+                                                                    Approved
+                                                                </Badge>
+                                                            ) : (
+                                                                <Badge variant="destructive">
+                                                                    <X className="h-3 w-3 mr-1" />
+                                                                    Rejected
+                                                                </Badge>
+                                                            )}
+                                                            {request.status === 'approved' && request.paymentType && (
+                                                                <Badge variant={request.paymentType === 'paid' ? 'default' : 'secondary'}>
+                                                                    {request.paymentType === 'paid' ? 'Paid' : 'Unpaid'}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-muted-foreground mb-2">
+                                                            {request.reason}
+                                                        </p>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            {request.status === 'approved' ? 'Approved' : 'Rejected'} by {request.approvedBy} on {request.approvedAt ? safeFormat(request.approvedAt, 'MMM dd, yyyy') : 'N/A'}
+                                                        </div>
+                                                        {request.status === 'rejected' && request.rejectionReason && (
+                                                            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                                                                <strong>Rejection Reason:</strong> {request.rejectionReason}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
                         
                         <Card>
                             <CardHeader>
@@ -133,7 +258,7 @@ export default function EmployeeAttendancePage() {
                                 <CardContent className="p-0 pt-4">
                                     <LeaveCalendar 
                                         userRole={currentUserRole}
-                                        leaveRequests={[]}
+                                        leaveRequests={leaveRequests}
                                         currentUserId={currentUserId}
                                     />
                                 </CardContent>
@@ -151,5 +276,6 @@ export default function EmployeeAttendancePage() {
                 </TabsContent>
             </Tabs>
         </div>
+        </AttendancePermissionGuard>
     )
 }

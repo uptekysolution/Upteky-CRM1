@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db, auth } from '@/lib/firebase-admin'
 import { computeWorkingDays } from '@/lib/working-days'
 import { computeDailyStatus, aggregateMonthly } from '@/lib/attendance-utils'
+import { canViewAttendanceRecord, getUserPermissions } from '@/lib/attendance-permissions'
 
 function toMonthStr(month: number): string {
   return month.toString().padStart(2, '0')
@@ -138,14 +139,30 @@ export async function GET(
       return NextResponse.json({ message: 'Invalid year' }, { status: 400 })
     }
 
-    // Authorization: allow self or admins/HR
+    // Authorization: check permissions
     const viewerId = decoded.uid
-    let canView = viewerId === userIdParam
+    let canView = viewerId === userIdParam // User can always view their own records
+    
     if (!canView) {
-      const viewerDoc = await db.collection('users').doc(viewerId).get()
-      const role = (viewerDoc.data()?.role || '').toLowerCase()
-      canView = ['admin', 'sub-admin', 'hr'].includes(role)
+      try {
+        // Get viewer's role and permissions
+        const viewerDoc = await db.collection('users').doc(viewerId).get()
+        if (!viewerDoc.exists) {
+          return NextResponse.json({ message: 'Viewer not found' }, { status: 404 })
+        }
+        
+        const viewerData = viewerDoc.data()
+        const viewerRole = viewerData?.role || 'Employee'
+        const viewerPermissions = await getUserPermissions(viewerId)
+        
+        // Check if viewer can access this user's attendance
+        canView = await canViewAttendanceRecord(userIdParam, viewerId, viewerRole, viewerPermissions)
+      } catch (error) {
+        console.error('Error checking attendance permissions:', error)
+        return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+      }
     }
+    
     if (!canView) {
       return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
     }

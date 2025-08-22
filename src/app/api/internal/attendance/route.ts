@@ -1,46 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase-admin';
+import { getAttendanceFilterByPermissions, getUserPermissions } from '@/lib/attendance-permissions';
 
-// Helper: get role-based filter
-async function getAttendanceFilter(userId: string, userRole: string) {
-  if (userRole === 'Admin' || userRole === 'Sub-Admin') {
-    return null; // No filter, return all
-  }
-  if (userRole === 'HR') {
-    // HR: all except Admin/Sub-Admin
-    return (doc: any) => doc.role !== 'Admin' && doc.role !== 'Sub-Admin';
-  }
-  if (userRole === 'Team Lead') {
-    // Find teams led by this user
-    const leadTeamsSnapshot = await db.collection('teamMembers').where('userId', '==', userId).where('role', '==', 'lead').get();
-    const leadTeamIds = leadTeamsSnapshot.docs.map(doc => doc.data().teamId);
-    if (leadTeamIds.length === 0) {
-      return (doc: any) => doc.userId === userId;
-    }
-    // Get all userIds in those teams
-    let teamMemberUserIds: string[] = [];
-    for (const teamId of leadTeamIds) {
-      const membersSnap = await db.collection('teamMembers').where('teamId', '==', teamId).get();
-      teamMemberUserIds.push(...membersSnap.docs.map(doc => doc.data().userId));
-    }
-    return (doc: any) => teamMemberUserIds.includes(doc.userId);
-  }
-  // Employee: only own records
-  return (doc: any) => doc.userId === userId;
-}
-
-// GET /api/internal/attendance - List attendance records (role-based)
+// GET /api/internal/attendance - List attendance records (permission-based)
 export async function GET(req: NextRequest) {
   const userId = req.headers.get('X-User-Id');
   const userRole = req.headers.get('X-User-Role');
+  
   if (!userId || !userRole) {
     return NextResponse.json({ message: 'User ID and Role are required headers' }, { status: 400 });
   }
+
   try {
+    // Get user permissions
+    const userPermissions = await getUserPermissions(userId);
+    
+    // Get permission-based filter
+    const { filter, error } = await getAttendanceFilterByPermissions(userId, userRole, userPermissions);
+    
+    if (error) {
+      return NextResponse.json({ message: error }, { status: 403 });
+    }
+
+    // Fetch all attendance records
     const snapshot = await db.collection('attendance').get();
     let records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const filter = await getAttendanceFilter(userId, userRole);
-    if (filter) records = records.filter(filter);
+    
+    // Apply permission-based filter
+    if (filter) {
+      if (typeof filter === 'function') {
+        records = await filter(records);
+      } else {
+        records = records.filter(filter);
+      }
+    }
+    
     return NextResponse.json(records);
   } catch (error) {
     console.error('Error fetching attendance:', error);

@@ -3,6 +3,7 @@ import { db } from '@/lib/firebase-admin';
 import { getSessionAndUserRole } from '@/lib/auth';
 import { Timestamp } from 'firebase-admin/firestore';
 import { LeaveStatus } from '@/types/leave';
+import { updateAttendanceForLeave, revertAttendanceForLeave } from '@/lib/leave-attendance-service';
 
 // PUT - Update leave request status (approve/reject)
 export async function PUT(
@@ -17,7 +18,7 @@ export async function PUT(
 
     const { requestId } = await params;
     const body = await req.json();
-    const { status, rejectionReason, approvedBy } = body;
+    const { status, rejectionReason, approvedBy, paymentType } = body;
 
     // Validate status
     if (!status || !['approved', 'rejected'].includes(status)) {
@@ -31,6 +32,21 @@ export async function PUT(
     if (status === 'rejected' && !rejectionReason?.trim()) {
       return NextResponse.json(
         { error: 'Rejection reason is required for rejected requests' },
+        { status: 400 }
+      );
+    }
+
+    // Validate payment type for approved requests
+    if (status === 'approved' && !paymentType) {
+      return NextResponse.json(
+        { error: 'Payment type (paid/unpaid) is required for approved requests' },
+        { status: 400 }
+      );
+    }
+
+    if (status === 'approved' && !['paid', 'unpaid'].includes(paymentType)) {
+      return NextResponse.json(
+        { error: 'Payment type must be either "paid" or "unpaid"' },
         { status: 400 }
       );
     }
@@ -88,6 +104,10 @@ export async function PUT(
       updateData.rejectionReason = rejectionReason.trim();
     }
 
+    if (status === 'approved' && paymentType) {
+      updateData.paymentType = paymentType;
+    }
+
     await leaveRequestRef.update(updateData);
 
     // Get the updated document
@@ -96,6 +116,19 @@ export async function PUT(
       id: updatedDoc.id,
       ...updatedDoc.data()
     };
+
+    // Update attendance and payroll based on the action
+    try {
+      if (status === 'approved' && paymentType) {
+        await updateAttendanceForLeave(updatedRequest, paymentType);
+      } else if (status === 'rejected') {
+        // If rejecting, we don't need to update attendance since it was never approved
+        console.log('Leave request rejected - no attendance update needed');
+      }
+    } catch (error) {
+      console.error('Error updating attendance/payroll:', error);
+      // Don't fail the request if attendance update fails
+    }
 
     return NextResponse.json({ 
       leaveRequest: updatedRequest,
@@ -166,6 +199,16 @@ export async function DELETE(
 
     // Delete the leave request
     await leaveRequestRef.delete();
+
+    // Revert attendance and payroll if the leave was approved
+    try {
+      if (leaveRequest.status === 'approved' && leaveRequest.paymentType) {
+        await revertAttendanceForLeave(leaveRequest);
+      }
+    } catch (error) {
+      console.error('Error reverting attendance/payroll:', error);
+      // Don't fail the request if attendance revert fails
+    }
 
     return NextResponse.json({ 
       message: 'Leave request deleted successfully' 

@@ -29,6 +29,8 @@ function serializeLeaveRequest(id: string, data: any) {
     requestedAt: toIso(data.requestedAt),
     approvedBy: data.approvedBy ?? null,
     approvedAt: toIso(data.approvedAt),
+    rejectionReason: data.rejectionReason ?? null,
+    paymentType: data.paymentType ?? null,
   };
 }
 

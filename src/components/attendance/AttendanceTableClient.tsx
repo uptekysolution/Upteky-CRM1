@@ -21,6 +21,7 @@ import { onAuthStateChanged, User } from 'firebase/auth'
 import { doc, getDoc } from 'firebase/firestore'
 import { MapPin, Clock, User as UserIcon, Building } from 'lucide-react'
 import { getOfficeMap, getOffices } from '@/lib/office-service'
+import { useRolePermissions } from '@/hooks/use-role-permissions'
 
 interface AttendanceRecord {
     id: string
@@ -68,6 +69,9 @@ export function AttendanceTableClient() {
     const [presentDaysMap, setPresentDaysMap] = useState<Record<string, number>>({})
     const [workingDays, setWorkingDays] = useState<number | null>(null)
     const [offices, setOffices] = useState<Array<{ id: string; name: string }>>([])
+    
+    // Get user permissions
+    const { hasPermission, hasAnyPermission, isLoading: permissionsLoading } = useRolePermissions()
 
     // Get current user and their data
     useEffect(() => {
@@ -109,22 +113,18 @@ export function AttendanceTableClient() {
         })()
     }, [])
 
-    // Subscribe to attendance records based on user role
+        // Subscribe to attendance records based on permissions
     useEffect(() => {
-        if (!user || !userData) return
+        if (!user || !userData || permissionsLoading) return
 
         let q = query(collection(db, 'attendance'), orderBy('createdAt', 'desc'))
 
-        // Apply role-based filtering
-        if (userData.role === 'Admin' || userData.role === 'Sub-Admin') {
-            // Admin/Sub-Admin can see all records
-        } else if (userData.role === 'HR') {
-            q = query(
-                collection(db, 'attendance'),
-                where('role', 'in', ['Employee', 'HR', 'Team Lead', 'Business Development']),
-                orderBy('createdAt', 'desc')
-            )
-        } else if (userData.role === 'Team Lead') {
+        // Apply permission-based filtering
+        if (hasPermission('attendance:view:all')) {
+            // User can view all attendance records (except Admin)
+            // We'll filter out Admin records in the snapshot processing
+        } else if (hasPermission('attendance:view:team')) {
+            // User can view team members' records
             if (userData.teamId) {
                 q = query(
                     collection(db, 'attendance'),
@@ -132,16 +132,25 @@ export function AttendanceTableClient() {
                     orderBy('createdAt', 'desc')
                 )
             } else {
+                // If not a team lead, fall back to own records
                 q = query(
                     collection(db, 'attendance'),
                     where('uid', '==', user.uid),
                     orderBy('createdAt', 'desc')
                 )
             }
-        } else {
+        } else if (hasPermission('attendance:view:own')) {
+            // User can only view their own records
             q = query(
                 collection(db, 'attendance'),
                 where('uid', '==', user.uid),
+                orderBy('createdAt', 'desc')
+            )
+        } else {
+            // No attendance permissions - return empty query
+            q = query(
+                collection(db, 'attendance'),
+                where('uid', '==', 'no-permission'),
                 orderBy('createdAt', 'desc')
             )
         }
@@ -154,9 +163,17 @@ export function AttendanceTableClient() {
             snapshot.forEach((doc) => {
                 const data = doc.data() as AttendanceRecord
                 if (data && data.uid) {
-                    records.push({ ...data, id: doc.id })
-                    userIds.add(data.uid)
-                    if ((data as any).officeId) officeIds.add((data as any).officeId as string)
+                    // Additional filtering for view:all permission to exclude Admin users
+                    if (hasPermission('attendance:view:all')) {
+                        // We'll filter out Admin records after fetching user data
+                        records.push({ ...data, id: doc.id })
+                        userIds.add(data.uid)
+                        if ((data as any).officeId) officeIds.add((data as any).officeId as string)
+                    } else {
+                        records.push({ ...data, id: doc.id })
+                        userIds.add(data.uid)
+                        if ((data as any).officeId) officeIds.add((data as any).officeId as string)
+                    }
                 }
             })
 
@@ -192,7 +209,17 @@ export function AttendanceTableClient() {
                     console.error('Failed to load offices', e)
                 }
             }
-            setAttendanceRecords(records)
+            
+            // Filter out Admin records for users with view:all permission
+            let filteredRecords = records
+            if (hasPermission('attendance:view:all')) {
+                filteredRecords = records.filter(record => {
+                    const userInfo = usersDataMap[record.uid]
+                    return userInfo && userInfo.role !== 'Admin'
+                })
+            }
+            
+            setAttendanceRecords(filteredRecords)
             setLoading(false)
         }, (error) => {
             console.error('Error listening to attendance records:', error)
@@ -200,7 +227,7 @@ export function AttendanceTableClient() {
         })
 
         return () => unsubscribe()
-    }, [user, userData])
+    }, [user, userData, hasPermission, permissionsLoading])
 
     // Fetch monthly summaries for visible users (admin views)
     useEffect(() => {
@@ -217,8 +244,8 @@ export function AttendanceTableClient() {
                         setWorkingDays(data.totalWorkingDays)
                     }
                 } catch {}
-                // Summaries per user for admins/HR, else just self
-                const targetIds = (userData.role === 'Admin' || userData.role === 'Sub-Admin' || userData.role === 'HR')
+                // Summaries per user based on permissions, else just self
+                const targetIds = (hasPermission('attendance:view:all') || hasPermission('attendance:view:team'))
                   ? Array.from(new Set(attendanceRecords.map(r => r.uid).filter(Boolean)))
                   : [user.uid]
                 const token = await user.getIdToken()
@@ -240,7 +267,7 @@ export function AttendanceTableClient() {
             }
         }
         run()
-    }, [user, userData, attendanceRecords])
+    }, [user, userData, attendanceRecords, hasPermission])
 
     // Filter records based on search, role and office filter
     const filteredRecords = attendanceRecords.filter((record) => {
@@ -321,6 +348,17 @@ export function AttendanceTableClient() {
             <Card>
                 <CardContent className="p-6">
                     <p className="text-center text-muted-foreground">Please log in to view attendance records</p>
+                </CardContent>
+            </Card>
+        )
+    }
+
+    // Check if user has any attendance permissions
+    if (!permissionsLoading && !hasAnyPermission(['attendance:view:own', 'attendance:view:team', 'attendance:view:all'])) {
+        return (
+            <Card>
+                <CardContent className="p-6">
+                    <p className="text-center text-muted-foreground">You don't have permission to view attendance records</p>
                 </CardContent>
             </Card>
         )

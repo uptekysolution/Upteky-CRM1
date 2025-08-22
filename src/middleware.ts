@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Add this function to check if a path should be protected
+function isProtectedRoute(pathname: string): boolean {
+  const protectedRoutes = [
+    '/employee/dashboard/attendance',
+    '/admin/dashboard/attendance',
+    '/dashboard/attendance'
+  ]
+  return protectedRoutes.some(route => pathname.startsWith(route))
+}
+
 export async function middleware(request: NextRequest) {
   const url = new URL(request.url)
   const pathname = url.pathname
@@ -50,11 +60,28 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Check if this is a protected attendance route
+  if (isProtectedRoute(pathname)) {
+    // For now, we'll let the page handle permission checks
+    // The page components will use the AttendancePermissionGuard
+    // This middleware can be extended later to check permissions at the route level
+    return NextResponse.next()
+  }
+
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/((?!_next|api|public|favicon.ico).*)'],
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+  ],
 }
 
 

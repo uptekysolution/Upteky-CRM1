@@ -31,14 +31,15 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
-import { LeaveRequest, LeaveStatus } from '@/types/leave';
+import { LeaveRequest, LeaveStatus, LeavePaymentType } from '@/types/leave';
 import { useToast } from '@/hooks/use-toast';
 import { safeToDate, safeFormat, getDaysBetween } from '@/utils/dateUtils';
 
 interface LeaveRequestsTableProps {
   leaveRequests?: LeaveRequest[];
-  onStatusUpdate: (requestId: string, status: LeaveStatus, rejectionReason?: string) => Promise<void>;
+  onStatusUpdate: (requestId: string, status: LeaveStatus, rejectionReason?: string, paymentType?: LeavePaymentType) => Promise<void>;
   isLoading?: boolean;
   userRole: string;
 }
@@ -96,6 +97,7 @@ export function LeaveRequestsTable({
 }: LeaveRequestsTableProps) {
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [paymentType, setPaymentType] = useState<LeavePaymentType>('paid');
   const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
 
@@ -118,12 +120,22 @@ export function LeaveRequestsTable({
       return;
     }
 
+    if (status === 'approved' && !paymentType) {
+      toast({
+        variant: 'destructive',
+        title: 'Payment Type Required',
+        description: 'Please select whether this is a paid or unpaid leave.',
+      });
+      return;
+    }
+
     setIsUpdating(true);
     try {
       await onStatusUpdate(
         selectedRequest.id, 
         status, 
-        status === 'rejected' ? rejectionReason : undefined
+        status === 'rejected' ? rejectionReason : undefined,
+        status === 'approved' ? paymentType : undefined
       );
       
       toast({
@@ -133,6 +145,7 @@ export function LeaveRequestsTable({
       
       setSelectedRequest(null);
       setRejectionReason('');
+      setPaymentType('paid');
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -276,15 +289,16 @@ export function LeaveRequestsTable({
           <CardContent>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Leave Type</TableHead>
-                  <TableHead>Date Range</TableHead>
-                  <TableHead>Days</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Processed By</TableHead>
-                  <TableHead>Processed On</TableHead>
-                </TableRow>
+                                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Leave Type</TableHead>
+                    <TableHead>Date Range</TableHead>
+                    <TableHead>Days</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Payment Type</TableHead>
+                    <TableHead>Processed By</TableHead>
+                    <TableHead>Processed On</TableHead>
+                  </TableRow>
               </TableHeader>
               <TableBody>
                 {processedRequests.map((request) => (
@@ -309,6 +323,15 @@ export function LeaveRequestsTable({
                     </TableCell>
                     <TableCell>{getStatusBadge(request.status)}</TableCell>
                     <TableCell>
+                      {request.status === 'approved' && request.paymentType ? (
+                        <Badge variant={request.paymentType === 'paid' ? 'default' : 'secondary'}>
+                          {request.paymentType === 'paid' ? 'Paid' : 'Unpaid'}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="text-sm text-muted-foreground">
                         {request.approvedBy || '-'}
                       </div>
@@ -328,7 +351,7 @@ export function LeaveRequestsTable({
 
       {/* Leave Request Details Dialog */}
       <Dialog open={!!selectedRequest} onOpenChange={() => setSelectedRequest(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Leave Request Details</DialogTitle>
             <DialogDescription>
@@ -375,6 +398,20 @@ export function LeaveRequestsTable({
                     {safeFormat(selectedRequest.requestedAt, 'MMM dd, yyyy HH:mm')}
                   </p>
                 </div>
+                {selectedRequest.status === 'approved' && selectedRequest.paymentType && (
+                  <div>
+                    <Label className="text-sm font-medium">Payment Type</Label>
+                    <Badge variant={selectedRequest.paymentType === 'paid' ? 'default' : 'secondary'} className="mt-1">
+                      {selectedRequest.paymentType === 'paid' ? 'Paid Leave' : 'Unpaid Leave'}
+                    </Badge>
+                  </div>
+                )}
+                {selectedRequest.status === 'rejected' && selectedRequest.rejectionReason && (
+                  <div className="col-span-2">
+                    <Label className="text-sm font-medium">Rejection Reason</Label>
+                    <p className="text-sm text-muted-foreground mt-1">{selectedRequest.rejectionReason}</p>
+                  </div>
+                )}
               </div>
 
               {/* Monthly Leave Warning */}
@@ -390,6 +427,31 @@ export function LeaveRequestsTable({
               {/* Action Buttons */}
               {selectedRequest.status === 'pending' && canApprove(selectedRequest) && (
                 <div className="space-y-4">
+                  {/* Payment Type Selection for Approval */}
+                  <div>
+                    <Label className="text-sm font-medium">
+                      Leave Type (required for approval)
+                    </Label>
+                    <RadioGroup
+                      value={paymentType}
+                      onValueChange={(value) => setPaymentType(value as LeavePaymentType)}
+                      className="mt-2"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="paid" id="paid" />
+                        <Label htmlFor="paid" className="text-sm">
+                          Paid Leave
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="unpaid" id="unpaid" />
+                        <Label htmlFor="unpaid" className="text-sm">
+                          Unpaid Leave
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
                   {/* Rejection Reason Input */}
                   <div>
                     <Label htmlFor="rejectionReason" className="text-sm font-medium">
@@ -411,6 +473,7 @@ export function LeaveRequestsTable({
                       onClick={() => {
                         setSelectedRequest(null);
                         setRejectionReason('');
+                        setPaymentType('paid');
                       }}
                       disabled={isUpdating}
                     >

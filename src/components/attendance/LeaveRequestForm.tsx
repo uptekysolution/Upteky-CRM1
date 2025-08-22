@@ -200,7 +200,7 @@ export function LeaveRequestForm({
             )}
             
             {/* Monthly Leave Status */}
-            {monthlyStatus && (
+            {/* {monthlyStatus && (
               <Alert className={cn(
                 "mt-2",
                 monthlyStatus.willExceed ? "border-destructive" : "border-blue-200"
@@ -211,7 +211,7 @@ export function LeaveRequestForm({
                   ({monthlyStatus.remaining >= 0 ? `${monthlyStatus.remaining} remaining` : `${Math.abs(monthlyStatus.remaining)} over limit`})
                 </AlertDescription>
               </Alert>
-            )}
+            )} */}
           </div>
 
           {/* Date Range Selection */}
