@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import Link from "next/link";
 
@@ -57,33 +59,66 @@ interface ProjectAssignment {
 
 
 // --- Component for Roster Management ---
-const RosterTab = ({ teamId, members, users }: { teamId: string, members: TeamMember[], users: User[] }) => {
+const RosterTab = ({ teamId, members }: { teamId: string, members: TeamMember[] }) => {
     const { toast } = useToast();
     const [teamMembers, setTeamMembers] = useState(members);
+    const [addOpen, setAddOpen] = useState(false);
+    const [search, setSearch] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [employees, setEmployees] = useState<User[]>([]);
+    const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-    const handleAddMember = async () => {
-        // Find a user not already in the team
-        const newUser = users.find(u => !teamMembers.some(tm => tm.userId === u.id));
-        if (!newUser) {
-            toast({ variant: 'destructive', title: "No more users to add" });
-            return;
+    // realtime members
+    useEffect(() => {
+        let unsub: (() => void) | undefined;
+        const load = async () => {
+            try {
+                const res = await fetch(`/api/admin/teams/${teamId}/members`, { headers: { 'X-User-Role': 'Admin' } });
+                if (res.ok) {
+                    const data = await res.json();
+                    setTeamMembers(data);
+                }
+            } catch {}
+        };
+        void load();
+        // NOTE: Admin SDK API routes are not realtime; UI stays consistent via optimistic updates below.
+        return () => { if (unsub) unsub(); };
+    }, [teamId]);
+
+    const openAddModal = async () => {
+        setAddOpen(true);
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/internal/users?role=Employee`, { headers: { 'X-User-Role': 'Admin' } });
+            const list = (await res.json()) as any[];
+            const filtered = list
+                .filter(u => !teamMembers.some(tm => tm.userId === u.id))
+                .map(u => ({ id: u.id, name: u.name || 'Unnamed', email: u.email || '' }));
+            setEmployees(filtered);
+        } catch {
+            toast({ variant: 'destructive', title: "Failed to fetch employees" });
+        } finally {
+            setLoading(false);
         }
+    };
 
+    const handleConfirmAdd = async () => {
+        if (!selectedUserId) return;
+        const chosen = employees.find(e => e.id === selectedUserId);
+        if (!chosen) return;
         try {
             const response = await fetch(`/api/admin/teams/${teamId}/members`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-User-Role': 'Admin' },
-                body: JSON.stringify({ userId: newUser.id, teamRole: 'New Member' })
+                body: JSON.stringify({ userId: chosen.id, teamRole: 'Member' })
             });
             if (!response.ok) throw new Error("Failed to add member");
             const newMemberData = await response.json();
-            
-            // Note: In a real app, you'd probably want to refresh the whole member list
-            // to ensure data consistency. For now, we optimistically update the state.
-            setTeamMembers(prev => [...prev, { ...newMemberData, userName: newUser.name, id: newMemberData.id }]);
+            setTeamMembers(prev => [...prev, { ...newMemberData, userName: chosen.name, id: newMemberData.id }]);
+            setAddOpen(false);
+            setSelectedUserId(null);
             toast({ title: "Member Added" });
-
-        } catch (error) {
+        } catch {
             toast({ variant: 'destructive', title: "Failed to add member" });
         }
     };
@@ -107,10 +142,47 @@ const RosterTab = ({ teamId, members, users }: { teamId: string, members: TeamMe
             <CardHeader>
                 <div className="flex justify-between items-center">
                     <CardTitle>Team Roster & Hierarchy</CardTitle>
-                    <Button size="sm" onClick={handleAddMember}><PlusCircle className="mr-2 h-4 w-4"/>Add Member</Button>
+                    <Button size="sm" onClick={openAddModal}><PlusCircle className="mr-2 h-4 w-4"/>Add Member</Button>
                 </div>
             </CardHeader>
             <CardContent>
+                <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Add Employee to Team</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-3">
+                            <Input placeholder="Search employees by name or email" value={search} onChange={(e) => setSearch(e.target.value)} />
+                            <div className="max-h-64 overflow-auto border rounded">
+                                {loading ? (
+                                    <div className="p-3 text-sm text-muted-foreground">Loading...</div>
+                                ) : (
+                                    <Table>
+                                        <TableBody>
+                                            {employees
+                                                .filter(e => (e.name + ' ' + e.email).toLowerCase().includes(search.toLowerCase()))
+                                                .map(e => (
+                                                    <TableRow key={e.id} onClick={() => setSelectedUserId(e.id)} className={selectedUserId === e.id ? 'bg-accent' : ''}>
+                                                        <TableCell className="font-medium">{e.name}</TableCell>
+                                                        <TableCell>{e.email}</TableCell>
+                                                    </TableRow>
+                                                ))}
+                                            {employees.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell className="text-sm text-muted-foreground">No employees available</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                )}
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
+                            <Button onClick={handleConfirmAdd} disabled={!selectedUserId}>Add</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -124,9 +196,43 @@ const RosterTab = ({ teamId, members, users }: { teamId: string, members: TeamMe
                         {teamMembers.map(member => (
                             <TableRow key={member.id}>
                                 <TableCell>{member.userName}</TableCell>
-                                <TableCell>{member.teamRole}</TableCell>
                                 <TableCell>
-                                    <Select defaultValue={member.reportsToMemberId || 'none'}>
+                                    <Select defaultValue={member.teamRole} onValueChange={async (val) => {
+                                        try {
+                                            const res = await fetch(`/api/admin/teams/${teamId}/members/${member.id}`, {
+                                                method: 'PUT',
+                                                headers: { 'Content-Type': 'application/json', 'X-User-Role': 'Admin' },
+                                                body: JSON.stringify({ teamRole: val, reportsToMemberId: member.reportsToMemberId || null })
+                                            });
+                                            if (!res.ok) throw new Error();
+                                            setTeamMembers(prev => prev.map(m => m.id === member.id ? { ...m, teamRole: val } : m));
+                                        } catch {
+                                            toast({ variant: 'destructive', title: 'Failed to update role' });
+                                        }
+                                    }}>
+                                        <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="Member">Member</SelectItem>
+                                            <SelectItem value="Team Lead">Team Lead</SelectItem>
+                                            <SelectItem value="Admin">Admin</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </TableCell>
+                                <TableCell>
+                                    <Select defaultValue={member.reportsToMemberId || 'none'} onValueChange={async (val) => {
+                                        const newReports = val === 'none' ? null : val;
+                                        try {
+                                            const res = await fetch(`/api/admin/teams/${teamId}/members/${member.id}`, {
+                                                method: 'PUT',
+                                                headers: { 'Content-Type': 'application/json', 'X-User-Role': 'Admin' },
+                                                body: JSON.stringify({ teamRole: member.teamRole, reportsToMemberId: newReports })
+                                            });
+                                            if (!res.ok) throw new Error();
+                                            setTeamMembers(prev => prev.map(m => m.id === member.id ? { ...m, reportsToMemberId: newReports } : m));
+                                        } catch {
+                                            toast({ variant: 'destructive', title: 'Failed to update reporting' });
+                                        }
+                                    }}>
                                         <SelectTrigger className="w-[180px]">
                                             <SelectValue />
                                         </SelectTrigger>

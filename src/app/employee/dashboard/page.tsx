@@ -23,6 +23,7 @@ import { CalendarCheck2, CheckSquare, Target } from "lucide-react";
 import { TaskService } from "@/lib/task-service";
 import { fetchAttendanceRecords, AttendanceRecord } from "@/lib/analytics";
 import { format, parse } from "date-fns";
+import { EmployeeProjectService } from "@/lib/employee-project-service";
 
 type MinimalTask = {
   id: string;
@@ -42,6 +43,10 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState<MinimalTask[]>([]);
   const [tasksLoading, setTasksLoading] = useState<boolean>(true);
   const [tasksError, setTasksError] = useState<string | null>(null);
+
+  const [projects, setProjects] = useState<any[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState<boolean>(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [attendanceLoading, setAttendanceLoading] = useState<boolean>(true);
@@ -115,6 +120,24 @@ export default function Dashboard() {
     };
     void load();
   }, [userId]);
+
+  // Load employee projects
+  useEffect(() => {
+    const loadProjects = async () => {
+      if (!userId || !userRole) return;
+      setProjectsLoading(true);
+      setProjectsError(null);
+      try {
+        const projectsData = await EmployeeProjectService.getEmployeeProjects(userId, userRole);
+        setProjects(projectsData);
+      } catch (e: any) {
+        setProjectsError("Failed to load projects");
+      } finally {
+        setProjectsLoading(false);
+      }
+    };
+    void loadProjects();
+  }, [userId, userRole]);
 
   useEffect(() => {
     const loadAttendance = async () => {
@@ -200,6 +223,33 @@ export default function Dashboard() {
                 <div>
                   <div className="text-2xl font-bold">{taskMetrics.onTimeRate}%</div>
                   <p className="text-xs text-muted-foreground">On-time delivery</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">My Projects</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {projectsLoading ? (
+              <div className="text-xs text-muted-foreground">Loading...</div>
+            ) : projectsError ? (
+              <div className="text-xs text-red-500">{projectsError}</div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-2xl font-bold">{projects.length}</div>
+                  <p className="text-xs text-muted-foreground">Active projects</p>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">
+                    {projects.filter(p => p.status === 'Active').length}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Currently active</p>
                 </div>
               </div>
             )}
@@ -301,6 +351,41 @@ export default function Dashboard() {
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>My Projects</CardTitle>
+            <CardDescription>Projects assigned to your team.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {projectsLoading ? (
+              <div className="text-sm text-muted-foreground">Loading projects...</div>
+            ) : projectsError ? (
+              <div className="text-sm text-red-500">{projectsError}</div>
+            ) : projects.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No projects assigned.</div>
+            ) : (
+              <div className="space-y-3">
+                {projects.slice(0, 5).map((project) => (
+                  <div key={project.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <div className="font-medium text-sm">{project.name}</div>
+                      <div className="text-xs text-muted-foreground">{project.status}</div>
+                    </div>
+                    <Badge className="text-xs" variant="outline">
+                      {project.progress || 0}%
+                    </Badge>
+                  </div>
+                ))}
+                {projects.length > 5 && (
+                  <div className="text-xs text-muted-foreground text-center">
+                    +{projects.length - 5} more projects
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

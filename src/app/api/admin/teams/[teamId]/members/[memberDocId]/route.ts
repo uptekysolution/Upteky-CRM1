@@ -43,7 +43,25 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ t
     }
     try {
         const memberRef = db.collection('teamMembers').doc(memberDocId);
+        const memberSnap = await memberRef.get();
+        const memberData = memberSnap.exists ? (memberSnap.data() as any) : null;
         await memberRef.delete();
+
+        // Also clear user's teamId if it matches this team
+        if (memberData?.userId) {
+            try {
+                const userRef = db.collection('users').doc(memberData.userId);
+                const userSnap = await userRef.get();
+                if (userSnap.exists) {
+                    const currentTeamId = (userSnap.data() as any)?.teamId;
+                    if (currentTeamId === teamId) {
+                        await userRef.set({ teamId: null }, { merge: true });
+                    }
+                }
+            } catch (e) {
+                console.warn('Warning: failed to clear user.teamId during member removal', e);
+            }
+        }
 
         return NextResponse.json({ message: 'Team member removed successfully' });
     } catch (error) {

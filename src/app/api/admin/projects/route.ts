@@ -37,17 +37,28 @@ export async function POST(req: NextRequest) {
 
     try {
         const body = await req.json();
-        const { name, description, status } = body;
+        const { name, description, status, clientId } = body;
 
         if (!name || !status) {
             return NextResponse.json({ message: 'Name and status are required' }, { status: 400 });
+        }
+
+        // Validate client exists if provided
+        if (clientId) {
+            const clientDoc = await db.collection('clients').doc(clientId).get();
+            if (!clientDoc.exists) {
+                return NextResponse.json({ message: 'Client not found' }, { status: 404 });
+            }
         }
 
         const newProject = {
             name,
             description: description || '',
             status,
+            clientId: clientId || null,
+            progress: 0,
             createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
         };
 
         const docRef = await db.collection('projects').add(newProject);
@@ -65,7 +76,21 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const projectsSnapshot = await db.collection('projects').get();
+        const { searchParams } = new URL(req.url);
+        const clientId = searchParams.get('clientId');
+        const status = searchParams.get('status');
+
+        let query: any = db.collection('projects');
+        
+        if (clientId) {
+            query = query.where('clientId', '==', clientId);
+        }
+        
+        if (status) {
+            query = query.where('status', '==', status);
+        }
+
+        const projectsSnapshot = await query.get();
         const projectsList = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         return NextResponse.json(projectsList);
     } catch (error) {

@@ -1,47 +1,70 @@
 
 import { NextRequest, NextResponse } from 'next/server';
+import { Timestamp } from 'firebase-admin/firestore';
 import { db } from '@/lib/firebase-admin';
-import { initialTeams, initialTeamMembers, teamToolAccess } from '@/app/dashboard/_data/seed-data';
 import { getSessionAndUserRole } from '@/lib/auth';
 
-async function checkPermission(req: NextRequest, requiredPermissions: string[]): Promise<boolean> {
+async function checkPermission(req: NextRequest): Promise<boolean> {
     const userRole = await getSessionAndUserRole(req); 
-    if (!userRole || userRole !== 'Admin') { // Seeding should be strictly Admin
-        console.warn(`Authorization failed for role '${userRole}'. Required: Admin`);
-        return false;
-    }
-    return true;
+    return userRole === 'Admin';
 }
 
+// POST /api/admin/seed/teams - Seed initial team data
 export async function POST(req: NextRequest) {
-    if (!await checkPermission(req, ['system:seed'])) {
+    if (!await checkPermission(req)) {
         return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
     }
 
     try {
+        const seedTeams = [
+            {
+                name: 'Development Team',
+                description: 'Core development team responsible for software development',
+                teamType: 'Department',
+                createdAt: Timestamp.now(),
+            },
+            {
+                name: 'Design Team',
+                description: 'UI/UX design team for user interface and experience',
+                teamType: 'Department',
+                createdAt: Timestamp.now(),
+            },
+            {
+                name: 'QA Team',
+                description: 'Quality assurance team for testing and validation',
+                teamType: 'Department',
+                createdAt: Timestamp.now(),
+            },
+            {
+                name: 'Project Alpha Team',
+                description: 'Dedicated team for Project Alpha implementation',
+                teamType: 'Project',
+                createdAt: Timestamp.now(),
+            },
+            {
+                name: 'Support Team',
+                description: 'Customer support and maintenance team',
+                teamType: 'Department',
+                createdAt: Timestamp.now(),
+            }
+        ];
+
         const batch = db.batch();
+        const createdTeams = [];
 
-        // Seed Teams
-        initialTeams.forEach(team => {
-            const teamRef = db.collection("teams").doc(team.id);
-            batch.set(teamRef, team);
-        });
-
-        // Seed Team Members
-        initialTeamMembers.forEach(member => {
-            const memberRef = db.collection("teamMembers").doc();
-            batch.set(memberRef, member);
-        });
-        
-        // Seed Team Tool Access
-        teamToolAccess.forEach(access => {
-            const accessRef = db.collection("teamToolAccess").doc();
-            batch.set(accessRef, access);
-        });
+        for (const teamData of seedTeams) {
+            const teamRef = db.collection('teams').doc();
+            batch.set(teamRef, teamData);
+            createdTeams.push({ id: teamRef.id, ...teamData });
+        }
 
         await batch.commit();
 
-        return NextResponse.json({ message: 'Teams data seeded successfully' }, { status: 200 });
+        return NextResponse.json({ 
+            message: 'Teams seeded successfully', 
+            count: createdTeams.length,
+            teams: createdTeams 
+        });
     } catch (error) {
         console.error("Error seeding teams:", error);
         return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });

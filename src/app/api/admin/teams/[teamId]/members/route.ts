@@ -36,6 +36,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tea
         };
 
         const docRef = await db.collection('teamMembers').add(newMember);
+
+        // Also set user's teamId for Employee Dashboard sync
+        try {
+            await db.collection('users').doc(userId).set({ teamId }, { merge: true });
+        } catch (e) {
+            console.warn('Warning: failed to set user.teamId during team member add', e);
+        }
         return NextResponse.json({ id: docRef.id, ...newMember }, { status: 201 });
     } catch (error) {
         console.error("Error adding team member:", error);

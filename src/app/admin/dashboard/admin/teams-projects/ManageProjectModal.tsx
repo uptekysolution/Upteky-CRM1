@@ -31,6 +31,7 @@ interface Project {
   name: string;
   description: string;
   status: string;
+  clientId?: string;
 }
 
 interface Task {
@@ -49,6 +50,12 @@ interface Team {
   name: string;
   description: string;
   teamType: string;
+}
+
+interface Client {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface ProjectFile {
@@ -83,12 +90,13 @@ export default function ManageProjectModal({ open, onOpenChange, project, onSave
   const [tab, setTab] = useState("details");
   const [form, setForm] = useState<Project>(project || { id: '', name: '', description: '', status: '' });
   const [saving, setSaving] = useState(false);
-  const [dataLoading, setDataLoading] = useState({ tasks: false, teams: false, files: false, activity: false });
+  const [dataLoading, setDataLoading] = useState({ tasks: false, teams: false, clients: false, files: false, activity: false });
 
   // Real data from API
   const [tasks, setTasks] = useState<Task[]>([]);
   const [assignedTeams, setAssignedTeams] = useState<Team[]>([]);
   const [availableTeams, setAvailableTeams] = useState<Team[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
 
@@ -108,6 +116,7 @@ export default function ManageProjectModal({ open, onOpenChange, project, onSave
     if (project?.id && open) {
       fetchTasks();
       fetchTeams();
+      fetchClients();
       fetchFiles();
       fetchActivity();
     }
@@ -165,6 +174,23 @@ export default function ManageProjectModal({ open, onOpenChange, project, onSave
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to fetch teams' });
     } finally {
       setDataLoading(prev => ({ ...prev, teams: false }));
+    }
+  };
+
+  const fetchClients = async () => {
+    setDataLoading(prev => ({ ...prev, clients: true }));
+    try {
+      const response = await fetch('/api/internal/crm/clients', {
+        headers: { 'X-User-Role': 'Admin' }
+      });
+      if (!response.ok) throw new Error('Failed to fetch clients');
+      const clientsData = await response.json();
+      setClients(clientsData);
+    } catch (error) {
+      console.error('Error fetching clients:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to fetch clients' });
+    } finally {
+      setDataLoading(prev => ({ ...prev, clients: false }));
     }
   };
 
@@ -532,6 +558,22 @@ export default function ManageProjectModal({ open, onOpenChange, project, onSave
                     <SelectItem value="On Hold">On Hold</SelectItem>
                     <SelectItem value="Completed">Completed</SelectItem>
                     <SelectItem value="Cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="project-client">Assigned Client</Label>
+                <Select value={form.clientId ?? 'none'} onValueChange={value => setForm(f => ({ ...f, clientId: value === 'none' ? undefined : value }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select client (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Client Assigned</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name} ({client.email})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -28,6 +28,13 @@ interface Project {
   name: string;
   description: string;
   status: string;
+  clientId?: string;
+}
+
+interface Client {
+  id: string;
+  name: string;
+  email: string;
 }
 
 const TableSkeleton = () => (
@@ -47,7 +54,8 @@ export default function TeamsProjectsPage() {
     const { toast } = useToast();
     const [teams, setTeams] = useState<Team[]>([]);
     const [projects, setProjects] = useState<Project[]>([]);
-    const [loading, setLoading] = useState({ teams: true, projects: true });
+    const [clients, setClients] = useState<Client[]>([]);
+    const [loading, setLoading] = useState({ teams: true, projects: true, clients: true });
     const [isSeeding, setIsSeeding] = useState({ teams: false, projects: false });
     
     // Modal states
@@ -67,19 +75,28 @@ export default function TeamsProjectsPage() {
     const [projectForm, setProjectForm] = useState({
         name: '',
         description: '',
-        status: ''
+        status: '',
+        clientId: ''
     });
 
-    const fetchData = async (type: 'teams' | 'projects') => {
+    const fetchData = async (type: 'teams' | 'projects' | 'clients') => {
         setLoading(prev => ({ ...prev, [type]: true }));
         try {
-            const response = await fetch(`/api/admin/${type}`, {
-                headers: { 'X-User-Role': 'Admin' }
-            });
+            let response;
+            if (type === 'clients') {
+                response = await fetch('/api/internal/crm/clients', {
+                    headers: { 'X-User-Role': 'Admin' }
+                });
+            } else {
+                response = await fetch(`/api/admin/${type}`, {
+                    headers: { 'X-User-Role': 'Admin' }
+                });
+            }
             if (!response.ok) throw new Error(`Failed to fetch ${type}`);
             const data = await response.json();
             if (type === 'teams') setTeams(data);
             if (type === 'projects') setProjects(data);
+            if (type === 'clients') setClients(data);
         } catch (error) {
             console.error(error);
             toast({ variant: 'destructive', title: `Error fetching ${type}` });
@@ -91,6 +108,7 @@ export default function TeamsProjectsPage() {
     useEffect(() => {
         fetchData('teams');
         fetchData('projects');
+        fetchData('clients');
     }, []);
 
     const handleSeed = async (type: 'teams' | 'projects') => {
@@ -150,13 +168,18 @@ export default function TeamsProjectsPage() {
 
         setCreating(prev => ({ ...prev, project: true }));
         try {
+            const projectData = {
+                ...projectForm,
+                clientId: projectForm.clientId || undefined
+            };
+
             const response = await fetch('/api/admin/projects', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
                     'X-User-Role': 'Admin' 
                 },
-                body: JSON.stringify(projectForm)
+                body: JSON.stringify(projectData)
             });
 
             if (!response.ok) throw new Error('Failed to create project');
@@ -164,7 +187,7 @@ export default function TeamsProjectsPage() {
             const newProject = await response.json();
             setProjects(prev => [...prev, newProject]);
             setShowProjectModal(false);
-            setProjectForm({ name: '', description: '', status: '' });
+            setProjectForm({ name: '', description: '', status: '', clientId: '' });
             toast({ title: 'Project Created', description: 'New project has been created successfully.' });
         } catch (error) {
             console.error(error);
@@ -256,12 +279,13 @@ export default function TeamsProjectsPage() {
                     <CardContent>
                         <Table>
                             <TableHeader>
-                                <TableRow>
-                                    <TableHead>Name</TableHead>
-                                    <TableHead>Description</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
+                                                            <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Assigned Client</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
                             </TableHeader>
                             <TableBody>
                                  {loading.projects ? <TableSkeleton /> : projects.map(project => (
@@ -269,6 +293,12 @@ export default function TeamsProjectsPage() {
                                         <TableCell className="font-medium">{project.name}</TableCell>
                                         <TableCell>{project.description}</TableCell>
                                         <TableCell>{project.status}</TableCell>
+                                        <TableCell>
+                                            {project.clientId ? 
+                                                clients.find(c => c.id === project.clientId)?.name || 'Unknown Client' 
+                                                : 'No Client Assigned'
+                                            }
+                                        </TableCell>
                                         <TableCell className="text-right">
                                             <Button variant="outline" size="sm" onClick={() => { setSelectedProject(project); setShowManageProject(true); }}>
                                                 Manage
@@ -380,6 +410,22 @@ export default function TeamsProjectsPage() {
                                 <SelectItem value="On Hold">On Hold</SelectItem>
                                 <SelectItem value="Completed">Completed</SelectItem>
                                 <SelectItem value="Cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="project-client">Assigned Client</Label>
+                        <Select value={projectForm.clientId || 'none'} onValueChange={(value) => setProjectForm(prev => ({ ...prev, clientId: value === 'none' ? '' : value }))}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select client (optional)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">No Client Assigned</SelectItem>
+                                {clients.map(client => (
+                                    <SelectItem key={client.id} value={client.id}>
+                                        {client.name} ({client.email})
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
