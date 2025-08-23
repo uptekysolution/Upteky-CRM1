@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
+import { isAuthenticated } from '@/lib/auth-utils';
 
 export type PermissionName = 
   | 'dashboard:view'
@@ -33,11 +34,20 @@ export function useRolePermissions() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let unsubscribePermissions: (() => void) | null = null;
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      // Clean up any existing permission listeners
+      if (unsubscribePermissions) {
+        unsubscribePermissions();
+        unsubscribePermissions = null;
+      }
+
       if (!user) {
         setUserRole(null);
         setPermissions([]);
         setIsLoading(false);
+        setError(null);
         return;
       }
 
@@ -84,12 +94,13 @@ export function useRolePermissions() {
           ];
           setPermissions(allPermissions);
           setIsLoading(false);
+          setError(null);
           return;
         }
 
         // Listen to role permissions in real-time
         const rolePermissionsRef = doc(db, 'role_permissions', role);
-        const unsubscribePermissions = onSnapshot(
+        unsubscribePermissions = onSnapshot(
           rolePermissionsRef,
           (doc) => {
             if (doc.exists()) {
@@ -102,24 +113,29 @@ export function useRolePermissions() {
             setError(null);
           },
           (error) => {
-            console.error('Error listening to role permissions:', error);
-            setError('Failed to load permissions');
+            // Only log errors if user is still authenticated
+            if (isAuthenticated()) {
+              console.error('Error listening to role permissions:', error);
+              setError('Failed to load permissions');
+            }
             setIsLoading(false);
           }
         );
-
-        return () => {
-          unsubscribePermissions();
-        };
       } catch (error) {
-        console.error('Error fetching user role:', error);
-        setError('Failed to fetch user role');
+        // Only log errors if user is still authenticated
+        if (isAuthenticated()) {
+          console.error('Error fetching user role:', error);
+          setError('Failed to fetch user role');
+        }
         setIsLoading(false);
       }
     });
 
     return () => {
       unsubscribeAuth();
+      if (unsubscribePermissions) {
+        unsubscribePermissions();
+      }
     };
   }, []);
 

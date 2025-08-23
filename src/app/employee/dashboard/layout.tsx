@@ -24,8 +24,8 @@ import {
   ChevronDown,
   Group,
 } from 'lucide-react';
-import { signOut } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
+import { gracefulLogout } from '@/lib/auth-utils';
 
 import {
   SidebarProvider,
@@ -99,12 +99,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
-      // Clear session cookies
-      await fetch('/api/auth/clearSession', { method: 'POST' });
+      await gracefulLogout();
       toast({ title: "Logged Out", description: "You have been successfully logged out." });
       router.push('/login');
     } catch (error) {
+      console.error('Logout error:', error);
+      // Even if there's an error, try to redirect to login
+      router.push('/login');
       toast({ variant: 'destructive', title: "Logout Failed", description: "Could not log you out. Please try again." });
     }
   };

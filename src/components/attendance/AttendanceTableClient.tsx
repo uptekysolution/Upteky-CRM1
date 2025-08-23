@@ -22,6 +22,7 @@ import { doc, getDoc } from 'firebase/firestore'
 import { MapPin, Clock, User as UserIcon, Building } from 'lucide-react'
 import { getOfficeMap, getOffices } from '@/lib/office-service'
 import { useRolePermissions } from '@/hooks/use-role-permissions'
+import { isAuthenticated } from '@/lib/auth-utils'
 
 interface AttendanceRecord {
     id: string
@@ -156,6 +157,12 @@ export function AttendanceTableClient() {
         }
 
         const unsubscribe = onSnapshot(q, async (snapshot) => {
+            // Check if user is still authenticated before processing
+            if (!isAuthenticated()) {
+                setLoading(false);
+                return;
+            }
+
             const records: AttendanceRecord[] = []
             const userIds = new Set<string>()
             const officeIds = new Set<string>()
@@ -222,7 +229,10 @@ export function AttendanceTableClient() {
             setAttendanceRecords(filteredRecords)
             setLoading(false)
         }, (error) => {
-            console.error('Error listening to attendance records:', error)
+            // Only log errors if user is still authenticated
+            if (isAuthenticated()) {
+                console.error('Error listening to attendance records:', error)
+            }
             setLoading(false)
         })
 
@@ -233,6 +243,10 @@ export function AttendanceTableClient() {
     useEffect(() => {
         const run = async () => {
             if (!user || !userData) return
+            
+            // Check if user is still authenticated before making API calls
+            if (!isAuthenticated()) return
+            
             try {
                 const currentMonth = new Date().getMonth() + 1
                 const currentYear = new Date().getFullYear()
