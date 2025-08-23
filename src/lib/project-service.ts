@@ -29,7 +29,7 @@ export type Project = {
 	assignedTeam?: string;
 	deadline?: any;
 	progress?: number;
-	clientId: string;
+	clientId?: string;
 	createdAt: any;
 	updatedAt?: any;
 };
@@ -52,7 +52,7 @@ export class ProjectService {
 				assignedTeam: data.assignedTeam,
 				deadline: data.deadline || null,
 				progress: data.progress ?? 0,
-				clientId: data.clientId,
+				clientId: data.clientId || undefined,
 				createdAt: data.createdAt || Timestamp.now(),
 				updatedAt: data.updatedAt || Timestamp.now()
 			} as Project;
@@ -79,7 +79,7 @@ export class ProjectService {
 					assignedTeam: data.assignedTeam,
 					deadline: data.deadline || null,
 					progress: data.progress ?? 0,
-					clientId: data.clientId,
+					clientId: data.clientId || undefined,
 					createdAt: data.createdAt || Timestamp.now(),
 					updatedAt: data.updatedAt || Timestamp.now()
 				} as Project;
@@ -101,7 +101,7 @@ export class ProjectService {
 			assignedTeam: data.assignedTeam,
 			deadline: data.deadline || null,
 			progress: data.progress ?? 0,
-			clientId: data.clientId,
+			clientId: data.clientId || undefined,
 			createdAt: data.createdAt || Timestamp.now(),
 			updatedAt: data.updatedAt || Timestamp.now()
 		} as Project;

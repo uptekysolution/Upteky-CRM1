@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
         const { searchParams } = new URL(req.url);
         const clientId = searchParams.get('clientId');
         const status = searchParams.get('status');
+        const unassigned = searchParams.get('unassigned') === 'true';
+
+        console.log('Projects API called with:', { clientId, status, unassigned, userRole });
 
         let query: any = db.collection('projects');
         
@@ -79,10 +82,39 @@ export async function GET(req: NextRequest) {
         }
 
         const projectsSnapshot = await query.get();
-        const projectsList = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const projectsList = projectsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            // Convert Firestore timestamps to ISO strings for proper JSON serialization
+            const project = { 
+                id: doc.id, 
+                ...data,
+                createdAt: data.createdAt ? data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt : null,
+                updatedAt: data.updatedAt ? data.updatedAt.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt : null,
+                deadline: data.deadline ? data.deadline.toDate ? data.deadline.toDate().toISOString() : data.deadline : null
+            };
+            return project;
+        });
+        
+        console.log('Found projects:', projectsList.length, 'for query');
+        console.log('Sample project timestamps:', projectsList.slice(0, 2).map(p => ({
+            name: p.name,
+            createdAt: p.createdAt,
+            deadline: p.deadline
+        })));
+        
+        // Filter for unassigned projects if requested (after getting all projects)
+        if (unassigned && (userRole === 'Admin' || userRole === 'Sub-Admin' || userRole === 'Team Lead')) {
+            const unassignedProjects = projectsList.filter(project => !project.clientId);
+            console.log('Returning unassigned projects:', unassignedProjects.length);
+            return NextResponse.json(unassignedProjects);
+        }
+        
+        console.log('Returning projects:', projectsList.length);
         return NextResponse.json(projectsList);
     } catch (error) {
         console.error("Error fetching projects:", error);
         return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
     }
 }
+
+

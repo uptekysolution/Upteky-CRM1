@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ClientFilters, FilterState } from '@/components/client-hub/ClientFilters'
 import { ClientForm, ClientFormValues } from '@/components/client-hub/ClientForm'
+import { ClientDetailsModal } from '@/components/client-hub/ClientDetailsModal'
 import { ClientRecord, createClientWithOnboarding, deleteClient, listClients, updateClient } from '@/lib/client-service'
 
 export default function ClientsDashboardPage() {
@@ -92,6 +93,10 @@ export default function ClientsDashboardPage() {
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Delete failed', description: e.message })
     }
+  }
+
+  const handleClientUpdate = (updatedClient: ClientRecord) => {
+    setClients((prev) => prev.map((c) => (c.id === updatedClient.id ? updatedClient : c)))
   }
 
   return (
@@ -201,46 +206,18 @@ export default function ClientsDashboardPage() {
         </Table>
       </CardContent>
 
-      {/* View Modal */}
-      <Dialog open={modalMode === 'view'} onOpenChange={(o) => { if (!o) { setModalMode(null); setSelected(null) } }}>
-        <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Client Details</DialogTitle>
-          </DialogHeader>
-          {selected && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-muted-foreground">Name</div>
-                <div className="font-medium">{selected.name}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Status</div>
-                <div className="font-medium">{selected.status}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Email</div>
-                <div>{selected.email || '—'}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Phone</div>
-                <div>{selected.phone || '—'}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Industry</div>
-                <div>{selected.industry || '—'}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Website</div>
-                <div>{selected.website || '—'}</div>
-              </div>
-              <div className="col-span-2">
-                <div className="text-sm text-muted-foreground">Description</div>
-                <div>{selected.description || '—'}</div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Client Details Modal */}
+      <ClientDetailsModal
+        client={selected}
+        open={modalMode === 'view'}
+        onOpenChange={(open) => {
+          if (!open) {
+            setModalMode(null)
+            setSelected(null)
+          }
+        }}
+        onClientUpdate={handleClientUpdate}
+      />
 
       {/* Edit Modal */}
       <Dialog open={modalMode === 'edit'} onOpenChange={(o) => { if (!o) { setModalMode(null); setSelected(null) } }}>
