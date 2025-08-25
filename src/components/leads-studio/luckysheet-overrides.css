@@ -1,0 +1,203 @@
+/* Luckysheet visual overrides for better contrast on light backgrounds */
+
+/* Toolbar text and icons */
+.luckysheet-toolbar, 
+.luckysheet-toolbar * {
+	color: #111 !important;
+}
+
+.luckysheet-toolbar .luckysheet-toolbar-button span,
+.luckysheet-toolbar .luckysheet-toolbar-button i {
+	color: #111 !important;
+	fill: #111 !important;
+}
+
+/* Ensure Luckysheet icon font renders and is visible */
+.luckysheet-toolbar .iconfont {
+	opacity: 1 !important;
+	visibility: visible !important;
+	font-family: "luckysheet-iconfont" !important;
+	color: #000 !important;
+}
+
+/* Buttons and dropdown triggers */
+.luckysheet-toolbar .luckysheet-toolbar-button,
+.luckysheet-toolbar .luckysheet-toolbar-combo,
+.luckysheet-toolbar .luckysheet-splitBtn,
+.luckysheet-toolbar .luckysheet-toolbar-size {
+	background: #fff !important;
+	border-color: #e5e7eb !important; /* gray-200 */
+	color: #111 !important;
+}
+
+/* Dropdown menus */
+.luckysheet-toolbar-menu-extend-wrapper,
+.luckysheet-toolbar-menu-extend-content,
+.luckysheet-toolbar-menu-extend-content li,
+.luckysheet-toolbar-menu-extend-content li * {
+	background: #fff !important;
+	color: #111 !important;
+}
+
+/* Icons inside menus */
+.luckysheet-toolbar-menu-extend-content i,
+.luckysheet-toolbar-menu-extend-content svg {
+	color: #111 !important;
+	fill: #111 !important;
+}
+
+/* Sheet tab bar (if shown) */
+.luckysheet-sheet-area, 
+.luckysheet-sheets-item,
+.luckysheet-sheets-item * {
+	color: #111 !important;
+}
+
+/* Header row/column labels */
+.luckysheet-col-header, 
+.luckysheet-row-header, 
+.luckysheet-col-header *,
+.luckysheet-row-header * {
+	color: #111 !important;
+}
+
+/* More button text */
+.luckysheet-toolbar .luckysheet-spreadsheet-more .luckysheet-toolbar-button span {
+	color: #111 !important;
+}
+
+/* Ensure toolbar background stays visible */
+.luckysheet-toolbar {
+	background: #fff !important;
+	border-color: #e5e7eb !important; /* gray-200 */
+}
+
+/* Formula bar / editor */
+.luckysheet-wa-editor,
+.luckysheet-wa-editor *,
+.luckysheet-cell-update,
+.luckysheet-cell-update * {
+	color: #111 !important;
+}
+
+/* Context menu */
+.luckysheet-contextmenu,
+.luckysheet-contextmenu * {
+	background: #fff !important;
+	color: #111 !important;
+}
+
+/* ========================= */
+/* Toolbar responsiveness     */
+/* ========================= */
+/* Make toolbar scroll via wrapper while staying a single row */
+.luckysheet-toolbar-wrap {
+	width: 100% !important;
+	overflow-x: auto !important;
+	overflow-y: hidden !important;
+	white-space: nowrap !important;
+	display: block !important;
+}
+
+.luckysheet-toolbar {
+	display: inline-flex !important;
+	flex-wrap: nowrap !important;
+	min-width: max-content !important;
+	gap: 2px;
+}
+
+/* Keep each button from wrapping internally */
+.luckysheet-toolbar .luckysheet-toolbar-button,
+.luckysheet-toolbar .luckysheet-toolbar-combo,
+.luckysheet-toolbar .luckysheet-splitBtn,
+.luckysheet-toolbar .luckysheet-toolbar-size {
+	flex: 0 0 auto !important;
+}
+
+/* Smooth, thin scrollbar for horizontal scroll */
+.luckysheet-toolbar-wrap::-webkit-scrollbar { height: 6px; }
+.luckysheet-toolbar-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+.luckysheet-toolbar-wrap { scrollbar-width: thin; }
+
+/* Ensure parent wrappers do not clip the toolbar overflow */
+.luckysheet-toolbar-box,
+.luckysheet-outer-container,
+.luckysheet-workarea {
+	overflow: visible !important;
+}
+
+/* On larger screens, hide scrollbar if not needed */
+@media (min-width: 1024px) {
+	.luckysheet-toolbar-wrap { overflow-x: hidden; }
+}
+
+
+/* ========================= */
+/* Compact toolbar sizing     */
+/* ========================= */
+/* Keep the grid container unchanged; only shrink the toolbar visuals */
+.luckysheet-toolbar {
+	padding: 4px 6px !important;
+	gap: 4px !important;
+}
+
+/* Shrink buttons and combos */
+.luckysheet-toolbar .luckysheet-toolbar-button,
+.luckysheet-toolbar .luckysheet-toolbar-combo,
+.luckysheet-toolbar .luckysheet-splitBtn,
+.luckysheet-toolbar .luckysheet-toolbar-size {
+	height: 28px !important;
+	line-height: 26px !important;
+	padding: 0 6px !important;
+	border-radius: 6px !important;
+	font-size: 12px !important;
+	flex: 0 0 auto !important; /* keep single line */
+}
+
+/* Compact dropdown titles */
+.luckysheet-toolbar .luckysheet-toolbar-combo .luckysheet-toolbar-combo-title,
+.luckysheet-toolbar .luckysheet-toolbar-size .luckysheet-toolbar-combo-title {
+	font-size: 12px !important;
+}
+
+/* Icon sizing */
+.luckysheet-toolbar .iconfont,
+.luckysheet-toolbar i,
+.luckysheet-toolbar svg {
+	font-size: 16px !important;
+	width: 16px !important;
+	height: 16px !important;
+}
+
+/* Inputs/selects inside toolbar */
+.luckysheet-toolbar input,
+.luckysheet-toolbar select {
+	height: 28px !important;
+	padding: 0 6px !important;
+	font-size: 12px !important;
+}
+
+/* Reduce gap between button groups if present */
+.luckysheet-toolbar .luckysheet-toolbar-separator {
+	margin: 0 4px !important;
+}
+
+/* Slightly reduce formula bar height so total block fits tighter */
+.luckysheet-wa-editor { min-height: 28px !important; }
+.luckysheet-cell-update { min-height: 28px !important; }
+
+/* Responsive: on very small screens, allow scroll but keep compact */
+@media (max-width: 640px) {
+	.luckysheet-toolbar { gap: 2px !important; }
+	.luckysheet-toolbar .luckysheet-toolbar-button,
+	.luckysheet-toolbar .luckysheet-toolbar-combo,
+	.luckysheet-toolbar .luckysheet-splitBtn,
+	.luckysheet-toolbar .luckysheet-toolbar-size {
+		padding: 0 4px !important;
+		font-size: 11px !important;
+		height: 26px !important;
+		line-height: 24px !important;
+	}
+}
+
+
