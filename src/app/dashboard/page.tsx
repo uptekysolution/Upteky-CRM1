@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { CalendarCheck2, CheckSquare, Clock, Users, Target } from "lucide-react"
-import { DashboardChart } from "./dashboard-chart"
+import dynamic from "next/dynamic"
+const DashboardChart = dynamic(() => import("./dashboard-chart").then(m => m.DashboardChart), { ssr: false })
 
 // This is a simplified mock. In a real app, this logic would be in the layout
 // and passed down through context or a state manager.

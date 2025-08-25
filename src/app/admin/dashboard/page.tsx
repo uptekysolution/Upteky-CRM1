@@ -21,9 +21,16 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { CalendarCheck2, CheckSquare, Clock, Users, Target, TrendingUp, TrendingDown, Activity, Server } from "lucide-react"
-import { DashboardChart } from "./dashboard-chart"
-import { EnhancedDashboardChart } from "@/components/analytics/EnhancedDashboardChart"
-import { UserActivityMonitor } from "@/components/analytics/UserActivityMonitor"
+import dynamic from "next/dynamic"
+const DashboardChart = dynamic(() => import("./dashboard-chart").then(m => m.DashboardChart), { ssr: false })
+const EnhancedDashboardChart = dynamic(
+  () => import("@/components/analytics/EnhancedDashboardChart").then(m => m.EnhancedDashboardChart),
+  { ssr: false, loading: () => <div className="h-[300px] flex items-center justify-center text-muted-foreground">Loading analytics…</div> }
+)
+const UserActivityMonitor = dynamic(
+  () => import("@/components/analytics/UserActivityMonitor").then(m => m.UserActivityMonitor),
+  { ssr: false, loading: () => <div className="h-[200px] flex items-center justify-center text-muted-foreground">Loading activity…</div> }
+)
 import { useAnalytics } from "@/hooks/use-analytics"
 import { useRolePermissions } from "@/hooks/use-role-permissions"
 import { RealTimeIndicator } from "@/components/analytics/RealTimeIndicator"

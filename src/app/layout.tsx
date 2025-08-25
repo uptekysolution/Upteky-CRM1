@@ -21,7 +21,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <head />
+      <head>
+        {/* Preconnects to speed up first requests */}
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+        <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+        {/* If you load images/assets from external domains add preconnects here as well */}
+      </head>
       <body className="font-body antialiased">
         {children}
         <Toaster />

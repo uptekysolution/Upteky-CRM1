@@ -23,6 +23,7 @@ import { CalendarCheck2, CheckSquare, Target } from "lucide-react";
 import { TaskService } from "@/lib/task-service";
 import { fetchAttendanceRecords, AttendanceRecord } from "@/lib/analytics";
 import { format, parse } from "date-fns";
+import dynamic from "next/dynamic";
 import { EmployeeProjectService } from "@/lib/employee-project-service";
 
 type MinimalTask = {
