@@ -1,7 +1,11 @@
 "use client"
 
 import * as React from "react"
-import * as RechartsPrimitive from "recharts"
+import dynamic from "next/dynamic"
+// Lazy-load heavy recharts primitives on the client to cut initial JS
+const RechartsPrimitive = dynamic(() => import("recharts"), {
+  ssr: false,
+}) as unknown as typeof import("recharts")
 
 import { cn } from "@/lib/utils"
 

@@ -267,8 +267,10 @@ export default function LoginPage() {
           src="https://placehold.co/1920x1080.png"
           alt="Abstract blue and white waves"
           data-ai-hint="office building abstract"
-          width="1920"
-          height="1080"
+          width={1920}
+          height={1080}
+          sizes="(max-width: 1024px) 0px, 50vw"
+          priority
           className="h-full w-full object-cover dark:brightness-[0.3]"
         />
       </div>
